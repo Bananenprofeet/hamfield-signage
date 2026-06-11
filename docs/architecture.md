@@ -2,27 +2,46 @@
 
 ## System overview
 
+```mermaid
+flowchart LR
+  browser[Browser]
+
+  subgraph cloud[cloud]
+    web["web<br/>(nginx/Vite)"]
+    api["api<br/>(Fastify)"]
+    db[(PostgreSQL)]
+    queue[(Redis/BullMQ)]
+    worker["worker<br/>(FFmpeg)"]
+    storage[(S3/MinIO)]
+
+    web -- "/api" --> api
+    api --> db
+    api --> queue
+    queue --> worker
+    worker --> storage
+  end
+
+  subgraph device[device]
+    agent["agent<br/>(Node)"]
+    sqlite[(SQLite cache)]
+    files["media files<br/>on disk"]
+    localServer["local HTTP server<br/>(:8080)"]
+    chrome["Chromium kiosk"]
+    player["player UI<br/>(React)"]
+
+    agent --- sqlite
+    sqlite --- files
+    agent --> localServer
+    localServer --> player
+    chrome --> player
+  end
+
+  browser --> web
+
+  agent -- "HTTPS + WSS<br/>(outbound only)" --> api
+  storage -- "presigned / streamed<br/>downloads" --> agent
 ```
-                ┌─────────────────────────── cloud ───────────────────────────┐
-                │                                                             │
-  Browser ──────┤  web (nginx/Vite)  ──/api──▶  api (Fastify)  ──▶ PostgreSQL │
-                │                                  │   ▲                      │
-                │                                  ▼   │                      │
-                │                            Redis/BullMQ                     │
-                │                                  │                          │
-                │                                  ▼                          │
-                │                       worker (FFmpeg) ──▶ S3/MinIO          │
-                └──────────────────────────────────────────────────▲──────────┘
-                                                   ▲               │
-                       HTTPS + WSS (outbound only) │               │ presigned/streamed
-                                                   │               │ downloads
-                ┌────────────────────────── device ┴───────────────┴──────────┐
-                │  agent (Node) ── SQLite cache ── media files on disk        │
-                │     │  local HTTP server (:8080)                            │
-                │     ▼                                                       │
-                │  Chromium kiosk ──▶ player UI (React)                       │
-                └──────────────────────────────────────────────────────────────┘
-```
+
 
 Three deployable parts:
 
