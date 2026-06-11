@@ -1,0 +1,18 @@
+[Unit]
+Description=Signage kiosk player (Chromium fullscreen)
+After=signage-agent.service systemd-user-sessions.service
+Wants=signage-agent.service
+
+[Service]
+Type=simple
+User=signage
+Group=signage
+EnvironmentFile=/etc/signage/agent.env
+Environment=DISPLAY=:0
+ExecStart=/usr/bin/xinit /opt/signage/bin/start-player.sh -- :0 vt1 -nolisten tcp -nocursor
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=0
+
+[Install]
+WantedBy=graphical.target multi-user.target

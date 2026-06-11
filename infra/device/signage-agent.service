@@ -1,0 +1,27 @@
+[Unit]
+Description=Signage device agent (sync, cache, local player server)
+Documentation=https://github.com/your-org/signage-platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=signage
+Group=signage
+EnvironmentFile=/etc/signage/agent.env
+Environment=NODE_ENV=production
+WorkingDirectory=/opt/signage/agent
+ExecStart=/usr/bin/node /opt/signage/agent/dist/main.js
+Restart=always
+RestartSec=5
+# The agent must keep running even if the backend is unreachable —
+# it serves cached content to the local player.
+StartLimitIntervalSec=0
+
+# Hardening (the agent only needs its data dir and the network).
+NoNewPrivileges=false
+ProtectSystem=full
+ReadWritePaths=/var/lib/signage
+
+[Install]
+WantedBy=multi-user.target

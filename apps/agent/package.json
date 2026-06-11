@@ -1,0 +1,33 @@
+{
+  "name": "@signage/agent",
+  "version": "0.1.0",
+  "private": true,
+  "main": "./dist/main.js",
+  "types": "./dist/main.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsx watch src/main.ts",
+    "start": "node dist/main.js",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@signage/media": "workspace:*",
+    "@signage/scheduler": "workspace:*",
+    "@signage/shared": "workspace:*",
+    "@signage/sync-protocol": "workspace:*",
+    "better-sqlite3": "^11.5.0",
+    "pino": "^9.5.0",
+    "ws": "^8.18.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^22.9.0",
+    "@types/ws": "^8.5.13",
+    "pino-pretty": "^13.0.0",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}

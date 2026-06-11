@@ -1,0 +1,108 @@
+import { spawn } from 'node:child_process';
+import { ffmpegPath } from './probe';
+
+export interface TranscodeOptions {
+  inputPath: string;
+  outputPath: string;
+  maxHeight: number;
+  videoBitrateKbps: number;
+  /** Mute output entirely (signage default keeps the AAC track but players mute). */
+  stripAudio?: boolean;
+}
+
+/**
+ * Builds the ffmpeg argument list that normalizes any input video into a
+ * signage-safe MP4: H.264 high profile, yuv420p, AAC audio, +faststart so
+ * playback can begin before the whole file is read, even dimensions
+ * (required by H.264), capped height, capped bitrate.
+ */
+export function buildTranscodeArgs(opts: TranscodeOptions): string[] {
+  const args = [
+    '-y',
+    '-i',
+    opts.inputPath,
+    // Cap height while preserving aspect ratio; -2 keeps width even.
+    '-vf',
+    `scale=-2:'min(${opts.maxHeight},ih)'`,
+    '-c:v',
+    'libx264',
+    '-profile:v',
+    'high',
+    '-level',
+    '4.1',
+    '-pix_fmt',
+    'yuv420p',
+    '-preset',
+    'medium',
+    '-b:v',
+    `${opts.videoBitrateKbps}k`,
+    '-maxrate',
+    `${Math.round(opts.videoBitrateKbps * 1.5)}k`,
+    '-bufsize',
+    `${opts.videoBitrateKbps * 2}k`,
+    '-movflags',
+    '+faststart',
+  ];
+  if (opts.stripAudio) {
+    args.push('-an');
+  } else {
+    args.push('-c:a', 'aac', '-b:a', '128k', '-ac', '2');
+  }
+  args.push('-f', 'mp4', opts.outputPath);
+  return args;
+}
+
+export interface ThumbnailOptions {
+  inputPath: string;
+  outputPath: string;
+  maxDimension: number;
+  /** For videos: seek position in seconds for the frame grab. */
+  seekSeconds?: number;
+  isVideo: boolean;
+}
+
+export function buildThumbnailArgs(opts: ThumbnailOptions): string[] {
+  const scale = `scale='min(${opts.maxDimension},iw)':'min(${opts.maxDimension},ih)':force_original_aspect_ratio=decrease`;
+  if (opts.isVideo) {
+    return [
+      '-y',
+      '-ss',
+      String(opts.seekSeconds ?? 1),
+      '-i',
+      opts.inputPath,
+      '-frames:v',
+      '1',
+      '-vf',
+      scale,
+      '-q:v',
+      '4',
+      opts.outputPath,
+    ];
+  }
+  return ['-y', '-i', opts.inputPath, '-vf', scale, '-q:v', '4', opts.outputPath];
+}
+
+/** Runs ffmpeg with the given args, rejecting with stderr tail on failure. */
+export function runFfmpeg(args: string[], timeoutMs = 30 * 60 * 1000): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(ffmpegPath(), args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`ffmpeg timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr = (stderr + chunk.toString()).slice(-8000);
+    });
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`ffmpeg exited with code ${code}: ${stderr.slice(-2000)}`));
+    });
+  });
+}

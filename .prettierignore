@@ -1,0 +1,6 @@
+node_modules
+dist
+pnpm-lock.yaml
+.claude
+.mock-device-data
+packages/database/prisma/migrations

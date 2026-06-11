@@ -1,0 +1,569 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================================
+// Enums
+// ============================================================
+
+enum OrgRole {
+  owner
+  admin
+  editor
+  viewer
+}
+
+enum DeviceOrientation {
+  landscape
+  portrait
+  inverted_landscape
+  inverted_portrait
+}
+
+enum MediaType {
+  image
+  video
+}
+
+enum MediaOrientation {
+  landscape
+  portrait
+  square
+}
+
+enum ProcessingStatus {
+  pending
+  processing
+  ready
+  failed
+}
+
+enum MediaVariantKind {
+  original
+  processed
+  fallback
+  thumbnail
+}
+
+enum FitMode {
+  contain
+  cover
+  stretch
+  original
+}
+
+enum CommandStatus {
+  pending
+  sent
+  acked
+  completed
+  failed
+  expired
+}
+
+enum SyncStatusValue {
+  never_synced
+  in_sync
+  syncing
+  error
+}
+
+enum PlaybackEventType {
+  start
+  end
+  error
+  skip
+}
+
+enum ProcessingJobStatus {
+  queued
+  running
+  completed
+  failed
+}
+
+// ============================================================
+// Users & organizations
+// ============================================================
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships        OrganizationMember[]
+  createdCommands    DeviceCommand[]
+  emergencyOverrides EmergencyOverride[]
+
+  @@map("users")
+}
+
+model Organization {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  members            OrganizationMember[]
+  devices            Device[]
+  deviceGroups       DeviceGroup[]
+  mediaAssets        MediaAsset[]
+  playlists          Playlist[]
+  schedules          Schedule[]
+  emergencyOverrides EmergencyOverride[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String   @id @default(cuid())
+  organizationId String
+  userId         String
+  role           OrgRole
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_members")
+}
+
+// ============================================================
+// Devices
+// ============================================================
+
+model Device {
+  id             String            @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  orientation    DeviceOrientation @default(landscape)
+  timezone       String            @default("UTC")
+
+  // Pairing. The code is short-lived, single-use and shown in the dashboard
+  // until used, so it is stored in plaintext by design (unlike device tokens,
+  // which are stored hashed).
+  pairingCode          String?   @unique
+  pairingCodeExpiresAt DateTime?
+  pairedAt             DateTime?
+
+  // Status (reported by the device)
+  lastSeenAt     DateTime?
+  lastIp         String?
+  appVersion     String?
+  osInfo         String?
+  archInfo       String?
+  uptimeSeconds  Float?
+  cpuPercent     Float?
+  memUsedBytes   BigInt?
+  memTotalBytes  BigInt?
+  diskFreeBytes  BigInt?
+  diskTotalBytes BigInt?
+  cacheUsedBytes BigInt?
+  screenWidth    Int?
+  screenHeight   Int?
+  networkType    String?
+  lastError      String?
+
+  // Sync / playback state
+  syncStatus        SyncStatusValue @default(never_synced)
+  lastSyncAt        DateTime?
+  manifestVersion   String?
+  currentPlaylistId String?
+  currentMediaId    String?
+  defaultPlaylistId String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  organization     Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  defaultPlaylist  Playlist?                 @relation("DeviceDefaultPlaylist", fields: [defaultPlaylistId], references: [id], onDelete: SetNull)
+  tokens           DeviceToken[]
+  groupMemberships DeviceGroupMembership[]
+  scheduleLinks    ScheduleDeviceAssignment[]
+  emergencyLinks   EmergencyOverrideDevice[]
+  commands         DeviceCommand[]
+  heartbeats       DeviceHeartbeat[]
+  logs             DeviceLog[]
+  playbackEvents   PlaybackEvent[]
+  screenshots      DeviceScreenshot[]
+
+  @@index([organizationId, deletedAt])
+  @@index([organizationId, name])
+  @@map("devices")
+}
+
+model DeviceToken {
+  id         String    @id @default(cuid())
+  deviceId   String
+  tokenHash  String    @unique
+  name       String?
+  lastUsedAt DateTime?
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId])
+  @@map("device_tokens")
+}
+
+model DeviceGroup {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization   Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  memberships    DeviceGroupMembership[]
+  scheduleLinks  ScheduleGroupAssignment[]
+  emergencyLinks EmergencyOverrideGroup[]
+
+  @@index([organizationId, deletedAt])
+  @@map("device_groups")
+}
+
+model DeviceGroupMembership {
+  id        String   @id @default(cuid())
+  deviceId  String
+  groupId   String
+  createdAt DateTime @default(now())
+
+  device Device      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  group  DeviceGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, groupId])
+  @@index([groupId])
+  @@map("device_group_memberships")
+}
+
+// ============================================================
+// Media
+// ============================================================
+
+model MediaAsset {
+  id                 String           @id @default(cuid())
+  organizationId     String
+  name               String
+  originalFilename   String
+  mediaType          MediaType
+  originalMimeType   String
+  processedMimeType  String?
+  originalStorageKey String
+  processedStorageKey String?
+  thumbnailStorageKey String?
+  durationSeconds    Float?
+  width              Int?
+  height             Int?
+  orientation        MediaOrientation?
+  processingStatus   ProcessingStatus @default(pending)
+  processingError    String?
+  sizeBytes          BigInt?
+  processedSizeBytes BigInt?
+  checksumSha256     String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  deletedAt          DateTime?
+
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  variants       MediaVariant[]
+  playlistItems  PlaylistItem[]
+  emergencyOverrides EmergencyOverride[]
+  playbackEvents PlaybackEvent[]
+  processingJobs MediaProcessingJob[]
+
+  @@index([organizationId, deletedAt, mediaType])
+  @@index([organizationId, processingStatus])
+  @@map("media_assets")
+}
+
+model MediaVariant {
+  id             String           @id @default(cuid())
+  mediaAssetId   String
+  kind           MediaVariantKind
+  storageKey     String
+  mimeType       String
+  width          Int?
+  height         Int?
+  bitrateKbps    Int?
+  sizeBytes      BigInt
+  checksumSha256 String
+  createdAt      DateTime         @default(now())
+
+  mediaAsset MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([mediaAssetId, kind])
+  @@map("media_variants")
+}
+
+model MediaProcessingJob {
+  id           String              @id @default(cuid())
+  mediaAssetId String
+  status       ProcessingJobStatus @default(queued)
+  attempts     Int                 @default(0)
+  error        String?
+  startedAt    DateTime?
+  finishedAt   DateTime?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+
+  mediaAsset MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@index([mediaAssetId, status])
+  @@map("media_processing_jobs")
+}
+
+// ============================================================
+// Playlists & schedules
+// ============================================================
+
+model Playlist {
+  id                          String    @id @default(cuid())
+  organizationId              String
+  name                        String
+  description                 String?
+  loop                        Boolean   @default(true)
+  defaultImageDurationSeconds Int       @default(10)
+  createdAt                   DateTime  @default(now())
+  updatedAt                   DateTime  @updatedAt
+  deletedAt                   DateTime?
+
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items              PlaylistItem[]
+  schedules          Schedule[]
+  emergencyOverrides EmergencyOverride[]
+  defaultForDevices  Device[]            @relation("DeviceDefaultPlaylist")
+
+  @@index([organizationId, deletedAt])
+  @@map("playlists")
+}
+
+model PlaylistItem {
+  id              String   @id @default(cuid())
+  playlistId      String
+  mediaAssetId    String
+  position        Int
+  durationSeconds Float?
+  fitMode         FitMode?
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  playlist   Playlist   @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  mediaAsset MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+
+  @@index([playlistId, position])
+  @@index([mediaAssetId])
+  @@map("playlist_items")
+}
+
+model Schedule {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String
+  playlistId     String
+  enabled        Boolean   @default(true)
+  priority       Int       @default(0)
+  startDate      String?
+  endDate        String?
+  daysOfWeek     Int[]     @default([])
+  startTime      String?
+  endTime        String?
+  timezone       String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  organization      Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  playlist          Playlist                   @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  deviceAssignments ScheduleDeviceAssignment[]
+  groupAssignments  ScheduleGroupAssignment[]
+
+  @@index([organizationId, deletedAt, enabled])
+  @@map("schedules")
+}
+
+model ScheduleDeviceAssignment {
+  id         String   @id @default(cuid())
+  scheduleId String
+  deviceId   String
+  createdAt  DateTime @default(now())
+
+  schedule Schedule @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  device   Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, deviceId])
+  @@index([deviceId])
+  @@map("schedule_device_assignments")
+}
+
+model ScheduleGroupAssignment {
+  id         String   @id @default(cuid())
+  scheduleId String
+  groupId    String
+  createdAt  DateTime @default(now())
+
+  schedule Schedule    @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  group    DeviceGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([scheduleId, groupId])
+  @@index([groupId])
+  @@map("schedule_group_assignments")
+}
+
+// ============================================================
+// Emergency overrides
+// ============================================================
+
+model EmergencyOverride {
+  id              String    @id @default(cuid())
+  organizationId  String
+  name            String?
+  playlistId      String?
+  mediaAssetId    String?
+  active          Boolean   @default(true)
+  appliesToAll    Boolean   @default(false)
+  startedAt       DateTime  @default(now())
+  stoppedAt       DateTime?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  playlist     Playlist?    @relation(fields: [playlistId], references: [id], onDelete: SetNull)
+  mediaAsset   MediaAsset?  @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  createdBy    User?        @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+  devices      EmergencyOverrideDevice[]
+  groups       EmergencyOverrideGroup[]
+
+  @@index([organizationId, active])
+  @@map("emergency_overrides")
+}
+
+model EmergencyOverrideDevice {
+  id         String   @id @default(cuid())
+  overrideId String
+  deviceId   String
+  createdAt  DateTime @default(now())
+
+  override EmergencyOverride @relation(fields: [overrideId], references: [id], onDelete: Cascade)
+  device   Device            @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([overrideId, deviceId])
+  @@index([deviceId])
+  @@map("emergency_override_devices")
+}
+
+model EmergencyOverrideGroup {
+  id         String   @id @default(cuid())
+  overrideId String
+  groupId    String
+  createdAt  DateTime @default(now())
+
+  override EmergencyOverride @relation(fields: [overrideId], references: [id], onDelete: Cascade)
+  group    DeviceGroup       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([overrideId, groupId])
+  @@index([groupId])
+  @@map("emergency_override_groups")
+}
+
+// ============================================================
+// Device telemetry
+// ============================================================
+
+model DeviceCommand {
+  id              String        @id @default(cuid())
+  deviceId        String
+  type            String
+  payload         Json          @default("{}")
+  status          CommandStatus @default(pending)
+  result          Json?
+  createdByUserId String?
+  expiresAt       DateTime?
+  sentAt          DateTime?
+  ackedAt         DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  device    Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  createdBy User?  @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, status])
+  @@index([deviceId, createdAt])
+  @@map("device_commands")
+}
+
+model DeviceHeartbeat {
+  id        String   @id @default(cuid())
+  deviceId  String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@map("device_heartbeats")
+}
+
+model DeviceLog {
+  id        String   @id @default(cuid())
+  deviceId  String
+  level     String
+  message   String
+  context   Json?
+  loggedAt  DateTime
+  createdAt DateTime @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, loggedAt])
+  @@map("device_logs")
+}
+
+model PlaybackEvent {
+  id           String            @id @default(cuid())
+  deviceId     String
+  mediaAssetId String?
+  playlistId   String?
+  eventType    PlaybackEventType
+  detail       Json?
+  occurredAt   DateTime
+  createdAt    DateTime          @default(now())
+
+  device     Device      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  mediaAsset MediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+
+  @@index([deviceId, occurredAt])
+  @@map("playback_events")
+}
+
+model DeviceScreenshot {
+  id         String   @id @default(cuid())
+  deviceId   String
+  storageKey String
+  createdAt  DateTime @default(now())
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@index([deviceId, createdAt])
+  @@map("device_screenshots")
+}

@@ -1,0 +1,261 @@
+import { z } from 'zod';
+import {
+  COMMAND_TYPES,
+  DEVICE_ORIENTATIONS,
+  FIT_MODES,
+  LOG_LEVELS,
+  ORG_ROLES,
+  PLAYBACK_EVENT_TYPES,
+} from './enums';
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export const timezoneSchema = z.string().min(1).max(64).refine(isValidTimezone, {
+  message: 'Invalid IANA timezone',
+});
+
+export function isValidTimezone(tz: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ---------- Auth ----------
+export const registerSchema = z.object({
+  email: z.string().email().max(255),
+  password: z.string().min(8).max(128),
+  name: z.string().min(1).max(100),
+  organizationName: z.string().min(1).max(100),
+});
+
+export const loginSchema = z.object({
+  email: z.string().email().max(255),
+  password: z.string().min(1).max(128),
+});
+
+// ---------- Organizations ----------
+export const createOrgSchema = z.object({
+  name: z.string().min(1).max(100),
+});
+
+export const updateOrgSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+});
+
+export const addMemberSchema = z.object({
+  email: z.string().email(),
+  role: z.enum(ORG_ROLES),
+});
+
+export const updateMemberSchema = z.object({
+  role: z.enum(ORG_ROLES),
+});
+
+// ---------- Devices ----------
+export const createDeviceSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  orientation: z.enum(DEVICE_ORIENTATIONS).default('landscape'),
+  timezone: timezoneSchema.default('UTC'),
+  groupIds: z.array(z.string()).optional(),
+});
+
+export const updateDeviceSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).nullable().optional(),
+  orientation: z.enum(DEVICE_ORIENTATIONS).optional(),
+  timezone: timezoneSchema.optional(),
+  defaultPlaylistId: z.string().nullable().optional(),
+  groupIds: z.array(z.string()).optional(),
+});
+
+export const createDeviceGroupSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  deviceIds: z.array(z.string()).optional(),
+});
+
+export const updateDeviceGroupSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).nullable().optional(),
+  deviceIds: z.array(z.string()).optional(),
+});
+
+export const issueCommandSchema = z.object({
+  type: z.enum(COMMAND_TYPES),
+  payload: z.record(z.unknown()).default({}),
+});
+
+// ---------- Media ----------
+export const updateMediaSchema = z.object({
+  name: z.string().min(1).max(255),
+});
+
+export const mediaListQuerySchema = z.object({
+  type: z.enum(['image', 'video']).optional(),
+  orientation: z.enum(['landscape', 'portrait', 'square']).optional(),
+  status: z.enum(['pending', 'processing', 'ready', 'failed']).optional(),
+  search: z.string().max(255).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+// ---------- Playlists ----------
+export const playlistItemInputSchema = z.object({
+  mediaAssetId: z.string().min(1),
+  durationSeconds: z.number().min(1).max(86400).nullable().optional(),
+  fitMode: z.enum(FIT_MODES).nullable().optional(),
+  enabled: z.boolean().default(true),
+});
+
+export const createPlaylistSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  loop: z.boolean().default(true),
+  defaultImageDurationSeconds: z.number().int().min(1).max(86400).default(10),
+  items: z.array(playlistItemInputSchema).optional(),
+});
+
+export const updatePlaylistSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).nullable().optional(),
+  loop: z.boolean().optional(),
+  defaultImageDurationSeconds: z.number().int().min(1).max(86400).optional(),
+});
+
+export const replacePlaylistItemsSchema = z.object({
+  items: z.array(playlistItemInputSchema),
+});
+
+// ---------- Schedules ----------
+export const scheduleBaseSchema = z.object({
+  name: z.string().min(1).max(100),
+  playlistId: z.string().min(1),
+  enabled: z.boolean().default(true),
+  priority: z.number().int().min(0).max(1000).default(0),
+  startDate: z.string().regex(DATE_RE).nullable().optional(),
+  endDate: z.string().regex(DATE_RE).nullable().optional(),
+  daysOfWeek: z.array(z.number().int().min(1).max(7)).max(7).default([]),
+  startTime: z.string().regex(TIME_RE).nullable().optional(),
+  endTime: z.string().regex(TIME_RE).nullable().optional(),
+  timezone: timezoneSchema.nullable().optional(),
+  deviceIds: z.array(z.string()).default([]),
+  groupIds: z.array(z.string()).default([]),
+});
+
+export const createScheduleSchema = scheduleBaseSchema.refine(
+  (s) => (s.startTime == null) === (s.endTime == null),
+  { message: 'startTime and endTime must both be set or both be empty' },
+);
+
+export const updateScheduleSchema = scheduleBaseSchema.partial();
+
+export const schedulePreviewQuerySchema = z.object({
+  deviceId: z.string().min(1),
+  at: z.string().datetime({ offset: true }).optional(),
+});
+
+// ---------- Emergency override ----------
+export const startEmergencySchema = z
+  .object({
+    name: z.string().max(200).optional(),
+    playlistId: z.string().optional(),
+    mediaAssetId: z.string().optional(),
+    appliesToAll: z.boolean().default(false),
+    deviceIds: z.array(z.string()).default([]),
+    groupIds: z.array(z.string()).default([]),
+  })
+  .refine((v) => Boolean(v.playlistId) !== Boolean(v.mediaAssetId), {
+    message: 'Provide exactly one of playlistId or mediaAssetId',
+  })
+  .refine((v) => v.appliesToAll || v.deviceIds.length > 0 || v.groupIds.length > 0, {
+    message: 'Select at least one device or group, or set appliesToAll',
+  });
+
+// ---------- Device APIs ----------
+export const pairRequestSchema = z.object({
+  pairingCode: z.string().min(4).max(16),
+  hardware: z
+    .object({
+      model: z.string().max(200).optional(),
+      os: z.string().max(200).optional(),
+      arch: z.string().max(50).optional(),
+      appVersion: z.string().max(50).optional(),
+    })
+    .optional(),
+});
+
+export const heartbeatSchema = z.object({
+  appVersion: z.string().max(50).optional(),
+  osInfo: z.string().max(200).optional(),
+  archInfo: z.string().max(50).optional(),
+  uptimeSeconds: z.number().optional(),
+  cpuPercent: z.number().optional(),
+  memUsedBytes: z.number().optional(),
+  memTotalBytes: z.number().optional(),
+  diskFreeBytes: z.number().optional(),
+  diskTotalBytes: z.number().optional(),
+  cacheUsedBytes: z.number().optional(),
+  screenWidth: z.number().int().optional(),
+  screenHeight: z.number().int().optional(),
+  networkType: z.string().max(50).optional(),
+  currentPlaylistId: z.string().nullable().optional(),
+  currentMediaId: z.string().nullable().optional(),
+  manifestVersion: z.string().nullable().optional(),
+  lastError: z.string().max(2000).nullable().optional(),
+});
+
+export const syncStatusSchema = z.object({
+  manifestVersion: z.string(),
+  status: z.enum(['applied', 'failed', 'downloading']),
+  error: z.string().max(2000).optional(),
+  cachedMediaIds: z.array(z.string()).optional(),
+  cacheUsedBytes: z.number().optional(),
+});
+
+export const deviceLogsSchema = z.object({
+  logs: z
+    .array(
+      z.object({
+        level: z.enum(LOG_LEVELS),
+        message: z.string().max(4000),
+        context: z.record(z.unknown()).optional(),
+        loggedAt: z.string().datetime({ offset: true }),
+      }),
+    )
+    .max(500),
+});
+
+export const playbackEventsSchema = z.object({
+  events: z
+    .array(
+      z.object({
+        eventType: z.enum(PLAYBACK_EVENT_TYPES),
+        mediaAssetId: z.string().nullable().optional(),
+        playlistId: z.string().nullable().optional(),
+        detail: z.record(z.unknown()).optional(),
+        occurredAt: z.string().datetime({ offset: true }),
+      }),
+    )
+    .max(500),
+});
+
+export const commandResultSchema = z.object({
+  status: z.enum(['completed', 'failed']),
+  result: z.record(z.unknown()).optional(),
+});
+
+export type RegisterInput = z.infer<typeof registerSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;
+export type CreateDeviceInput = z.infer<typeof createDeviceSchema>;
+export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;
+export type CreatePlaylistInput = z.infer<typeof createPlaylistSchema>;
+export type CreateScheduleInput = z.infer<typeof createScheduleSchema>;
+export type StartEmergencyInput = z.infer<typeof startEmergencySchema>;
+export type PairRequestInput = z.infer<typeof pairRequestSchema>;
+export type HeartbeatInput = z.infer<typeof heartbeatSchema>;
+export type IssueCommandInput = z.infer<typeof issueCommandSchema>;

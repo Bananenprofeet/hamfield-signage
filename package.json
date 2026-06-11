@@ -1,0 +1,31 @@
+{
+  "name": "signage-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Digital signage platform for Raspberry Pi and ODROID-C4 devices",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "format": "prettier --write \"**/*.{ts,tsx,js,json,md,css,html}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md,css,html}\"",
+    "db:generate": "pnpm --filter @signage/database generate",
+    "db:migrate": "pnpm --filter @signage/database migrate:deploy",
+    "db:migrate:dev": "pnpm --filter @signage/database migrate:dev",
+    "db:seed": "pnpm --filter @signage/database seed",
+    "dev:api": "pnpm --filter @signage/api dev",
+    "dev:web": "pnpm --filter @signage/web dev",
+    "dev:worker": "pnpm --filter @signage/worker dev",
+    "dev:mock-device": "pnpm --filter @signage/mock-device dev",
+    "dev:infra": "docker compose up -d postgres redis minio minio-setup",
+    "dev:up": "docker compose up -d",
+    "dev:down": "docker compose down"
+  },
+  "devDependencies": {
+    "prettier": "^3.3.3"
+  }
+}

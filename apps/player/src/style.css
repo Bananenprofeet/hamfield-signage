@@ -1,0 +1,167 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  background: #000;
+  overflow: hidden;
+  cursor: none;
+  font-family:
+    system-ui,
+    -apple-system,
+    'Segoe UI',
+    Roboto,
+    sans-serif;
+}
+
+#stage {
+  position: absolute;
+  width: 100vw;
+  height: 100vh;
+  top: 0;
+  left: 0;
+  background: #000;
+}
+
+/* Rotated orientations: swap dimensions and rotate around the center. */
+#stage.portrait,
+#stage.inverted_portrait {
+  width: 100vh;
+  height: 100vw;
+  top: 50%;
+  left: 50%;
+}
+#stage.portrait {
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+#stage.inverted_portrait {
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+#stage.inverted_landscape {
+  transform: rotate(180deg);
+}
+
+.layer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  background: #000;
+}
+.layer.visible {
+  opacity: 1;
+}
+
+.layer img,
+.layer video {
+  width: 100%;
+  height: 100%;
+}
+.layer .fit-contain {
+  object-fit: contain;
+}
+.layer .fit-cover {
+  object-fit: cover;
+}
+.layer .fit-stretch {
+  object-fit: fill;
+}
+.layer .fit-original {
+  width: auto;
+  height: auto;
+  max-width: none;
+  max-height: none;
+  object-fit: none;
+}
+
+#fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(160deg, #0b1220 0%, #111c33 100%);
+  color: #e2e8f0;
+  z-index: 10;
+}
+.fallback-inner {
+  text-align: center;
+  padding: 0 8vw;
+}
+#fb-name {
+  font-size: 4vmin;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+#fb-message {
+  margin-top: 2vmin;
+  font-size: 2.6vmin;
+  color: #94a3b8;
+  min-height: 3vmin;
+}
+#fb-badges {
+  margin-top: 3vmin;
+  display: flex;
+  gap: 1.5vmin;
+  justify-content: center;
+}
+.badge {
+  font-size: 1.8vmin;
+  padding: 0.6vmin 1.6vmin;
+  border-radius: 999px;
+  border: 1px solid #334155;
+  color: #94a3b8;
+}
+.badge.ok {
+  border-color: #14532d;
+  color: #4ade80;
+}
+.badge.bad {
+  border-color: #7f1d1d;
+  color: #f87171;
+}
+#fb-clock {
+  margin-top: 4vmin;
+  font-size: 6vmin;
+  font-variant-numeric: tabular-nums;
+  color: #cbd5e1;
+}
+
+#identify {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(13, 24, 48, 0.92);
+  color: #fff;
+  font-size: 7vmin;
+  font-weight: 700;
+  text-align: center;
+  z-index: 20;
+  padding: 0 5vw;
+}
+
+#offline-dot {
+  position: absolute;
+  top: 1.2vmin;
+  right: 1.2vmin;
+  width: 1.4vmin;
+  height: 1.4vmin;
+  border-radius: 50%;
+  background: #ef4444;
+  opacity: 0.7;
+  z-index: 30;
+}
+
+.hidden {
+  display: none !important;
+}

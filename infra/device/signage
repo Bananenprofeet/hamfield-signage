@@ -1,0 +1,121 @@
+#!/usr/bin/env bash
+# signage — device management CLI installed by install.sh
+set -eu
+
+ENV_FILE=/etc/signage/agent.env
+AGENT_UNIT=signage-agent.service
+PLAYER_UNIT=signage-player.service
+
+usage() {
+  cat <<'EOF'
+Usage: signage <command>
+
+  status              Agent + player service status and local health
+  logs [-f]           Agent logs (journalctl; -f to follow)
+  player-logs [-f]    Player/kiosk logs
+  restart             Restart the agent
+  restart-player      Restart the kiosk browser
+  pair <code>         Set a new pairing code and restart the agent
+  config              Show configuration (/etc/signage/agent.env)
+  config set K V      Set a config key and restart the agent
+  health              Query the local player server health endpoint
+  screenshot <file>   Take a test screenshot to <file>
+  version             Installed agent version
+EOF
+}
+
+require_root_for_env() {
+  if [ ! -r "$ENV_FILE" ] && [ "$(id -u)" -ne 0 ]; then
+    echo "Run as root (sudo signage ...)" >&2
+    exit 1
+  fi
+}
+
+player_port() {
+  local port
+  port="$(grep -E '^SIGNAGE_PLAYER_PORT=' "$ENV_FILE" 2> /dev/null | cut -d= -f2 || true)"
+  echo "${port:-8080}"
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  status)
+    systemctl --no-pager status "$AGENT_UNIT" || true
+    echo
+    systemctl --no-pager status "$PLAYER_UNIT" 2> /dev/null || true
+    echo
+    require_root_for_env
+    curl -fsS "http://127.0.0.1:$(player_port)/healthz" 2> /dev/null \
+      && echo || echo "Local player server is not responding"
+    ;;
+  logs)
+    shift || true
+    journalctl -u "$AGENT_UNIT" -n 200 --no-pager "$@"
+    ;;
+  player-logs)
+    shift || true
+    journalctl -u "$PLAYER_UNIT" -n 200 --no-pager "$@"
+    ;;
+  restart)
+    systemctl restart "$AGENT_UNIT"
+    echo "Agent restarted"
+    ;;
+  restart-player)
+    systemctl restart "$PLAYER_UNIT"
+    echo "Player restarted"
+    ;;
+  pair)
+    code="${2:?usage: signage pair <code>}"
+    require_root_for_env
+    if grep -qE '^SIGNAGE_PAIRING_CODE=' "$ENV_FILE"; then
+      sed -i "s|^SIGNAGE_PAIRING_CODE=.*|SIGNAGE_PAIRING_CODE=$code|" "$ENV_FILE"
+    else
+      echo "SIGNAGE_PAIRING_CODE=$code" >> "$ENV_FILE"
+    fi
+    systemctl restart "$AGENT_UNIT"
+    echo "Pairing code set — agent restarting. Watch progress with: signage logs -f"
+    ;;
+  config)
+    require_root_for_env
+    if [ "${2:-}" = "set" ]; then
+      key="${3:?usage: signage config set <KEY> <VALUE>}"
+      value="${4:?usage: signage config set <KEY> <VALUE>}"
+      case "$key" in
+        SIGNAGE_*) ;;
+        *) echo "Keys must start with SIGNAGE_" >&2; exit 1 ;;
+      esac
+      if grep -qE "^$key=" "$ENV_FILE"; then
+        sed -i "s|^$key=.*|$key=$value|" "$ENV_FILE"
+      else
+        echo "$key=$value" >> "$ENV_FILE"
+      fi
+      systemctl restart "$AGENT_UNIT"
+      echo "$key updated — agent restarted"
+    else
+      # Hide nothing: pairing codes are single-use and tokens never live here.
+      cat "$ENV_FILE"
+    fi
+    ;;
+  health)
+    require_root_for_env
+    curl -fsS "http://127.0.0.1:$(player_port)/healthz"
+    echo
+    ;;
+  screenshot)
+    out="${2:?usage: signage screenshot <file.png>}"
+    /opt/signage/bin/screenshot.sh "$out"
+    echo "Saved $out"
+    ;;
+  version)
+    node -e "console.log(require('/opt/signage/agent/package.json').version)" 2> /dev/null \
+      || echo "unknown"
+    ;;
+  ""|-h|--help|help)
+    usage
+    ;;
+  *)
+    echo "Unknown command: $cmd" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

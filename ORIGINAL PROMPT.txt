@@ -1,0 +1,1778 @@
+You are Claude Code. Build a production-ready digital signage software system for Raspberry Pi and ODROID-C4 devices.
+
+The product must allow users to manage signage screens remotely without setting up VPN, port forwarding, static IPs, or on-site router changes. Devices must connect outbound to the cloud service and stay controllable through that outbound connection.
+
+The system must support scheduling of image and video content, reliable playback, portrait and landscape screens, offline playback, and remote device monitoring.
+
+Build this as a complete monorepo with clear setup instructions, runnable development environment, database migrations, API docs, tests, and deployment scripts.
+
+## 1. Product summary
+
+Create a digital signage platform with three main parts:
+
+1. Cloud backend
+   A server that handles users, organizations, devices, media, schedules, playlists, device commands, device status, and content synchronization.
+
+2. Web admin dashboard
+   A browser-based dashboard where users can upload media, create playlists, schedule content, register devices, monitor devices, and control screens remotely.
+
+3. Linux device player/agent
+   Software that runs on Raspberry Pi and ODROID-C4. It must boot into fullscreen signage playback, connect outbound to the backend, download assigned content, cache it locally, play scheduled media, report status, and recover automatically after network loss, reboot, or crashes.
+
+## 2. Hardware and operating system targets
+
+Target devices:
+
+* Raspberry Pi 4 and Raspberry Pi 5
+* ODROID-C4
+* ARM64 Linux preferred
+* Raspberry Pi OS 64-bit for Raspberry Pi
+* Ubuntu/Debian-based Linux for ODROID-C4
+
+The player must be designed for low-power ARM devices and must avoid heavy desktop dependencies where possible.
+
+## 3. Core requirements
+
+### Remote connectivity
+
+The device must never require inbound connections.
+
+Implement an outbound-only connection model:
+
+* Device initiates connection to cloud backend over HTTPS and secure WebSocket.
+* Device maintains a persistent WebSocket connection for commands and status updates.
+* If WebSocket fails, device falls back to periodic HTTPS polling.
+* Backend can send commands through the existing outbound connection.
+* No VPN.
+* No port forwarding.
+* No static IP requirement.
+* Devices behind NAT/firewalls must still work as long as outbound HTTPS/WSS traffic is allowed.
+
+Required remote commands:
+
+* Restart player
+* Reboot device
+* Refresh content
+* Clear cache
+* Take screenshot if technically available
+* Identify device
+* Change orientation
+* Change assigned playlist/schedule
+* Update device settings
+* Show emergency content
+* Stop emergency content
+* Send logs
+* Run health check
+* Trigger software update placeholder/hook
+
+### Device pairing
+
+Implement secure device registration:
+
+* Admin creates a device in the dashboard.
+* System generates a short pairing code and/or QR code.
+* Device setup flow asks for server URL and pairing code.
+* Device calls backend to pair.
+* Backend returns a unique device ID and long-lived device token.
+* Store token securely on the device.
+* Device authenticates future requests using its token.
+* Pairing codes must expire.
+* Pairing codes must be single-use.
+* Admin can revoke a device token.
+
+### Media upload and processing
+
+Support uploading:
+
+* Images: JPG, JPEG, PNG, WebP
+* Videos: MP4, MOV, MKV, AVI, WebM, M4V and other common FFmpeg-supported formats
+
+Important: playback must be reliable on Raspberry Pi and ODROID-C4. Do not assume every uploaded video format can be played natively. Implement a media processing pipeline that accepts many formats and converts them into a signage-safe playback format.
+
+Use FFmpeg/ffprobe for:
+
+* Inspecting media metadata
+* Detecting duration
+* Detecting resolution
+* Detecting orientation
+* Generating thumbnails
+* Transcoding unsupported or non-optimal videos
+* Normalizing videos to H.264 video + AAC audio inside MP4 container
+* Creating a lower-bitrate fallback version if needed
+
+Store original media and processed media separately.
+
+Media fields:
+
+* id
+* organization_id
+* original_filename
+* media_type: image/video
+* original_mime_type
+* processed_mime_type
+* original_url/storage_key
+* processed_url/storage_key
+* thumbnail_url/storage_key
+* duration_seconds
+* width
+* height
+* orientation: portrait/landscape/square
+* processing_status: pending/processing/ready/failed
+* processing_error
+* created_at
+* updated_at
+
+### Portrait and landscape behavior
+
+The system must fully support both portrait and landscape displays.
+
+Important behavior:
+
+* Portrait images are uploaded as real portrait files.
+* Landscape images are uploaded as real landscape files.
+* Do not require users to rotate the media manually after upload.
+* Detect media width and height.
+* Automatically classify media as portrait, landscape, or square.
+* Devices have a configured screen orientation:
+
+  * landscape
+  * portrait
+  * inverted_landscape
+  * inverted_portrait
+* The device player must render content correctly for the configured screen orientation.
+* The admin dashboard must show whether content is portrait or landscape.
+* Playlists and schedules should indicate if media orientation does not match the target device orientation.
+* Provide an option to either:
+
+  * block mismatched content from being assigned, or
+  * allow it with a fit mode.
+
+Fit modes:
+
+* contain: show full image/video, possible black bars
+* cover: fill screen, crop overflow
+* stretch: fill screen without preserving aspect ratio
+* original: center at original aspect ratio
+
+Default fit mode: contain.
+
+Device orientation must be configurable remotely from the dashboard.
+
+### Scheduling
+
+Build a flexible scheduling system.
+
+Required schedule types:
+
+1. Always active playlist
+2. Date range schedule
+3. Weekly recurring schedule
+4. Time-of-day schedule
+5. Priority/emergency override
+
+Examples:
+
+* Play playlist A every weekday from 09:00 to 17:00.
+* Play playlist B every Saturday and Sunday.
+* Play campaign C from 2026-07-01 through 2026-07-31.
+* Play emergency message immediately on selected devices.
+* Fall back to default playlist if no schedule matches.
+
+Scheduling rules:
+
+* Each device can have one or more assigned schedules.
+* Each schedule points to a playlist.
+* A playlist contains ordered media items.
+* Each playlist item has duration.
+* Images require a configurable display duration.
+* Videos should play to their natural duration by default.
+* Allow overriding video duration.
+* Allow per-item fit mode.
+* Allow per-playlist loop mode.
+* Allow schedule priority.
+* If multiple schedules match, highest priority wins.
+* Emergency override always wins.
+* Device must be able to calculate schedule locally after syncing so playback continues offline.
+
+Timezone handling:
+
+* Each device has a timezone.
+* Schedules are interpreted in the device timezone unless specified otherwise.
+* Store times in a robust format.
+* Avoid bugs around DST.
+* Display timezone clearly in the dashboard.
+
+### Offline playback
+
+The device must keep playing when internet is unavailable.
+
+Required behavior:
+
+* Device downloads and caches all currently required media.
+* Device stores schedules, playlists, and media metadata locally.
+* Device continues playing the last valid schedule offline.
+* Device keeps a local playback queue.
+* Device retries failed downloads.
+* Device reports sync status when back online.
+* Device must never show a blank screen just because internet is down.
+* If no content is cached, show a local fallback screen with device name, pairing/status info, and error message.
+
+Local storage:
+
+* Use a local SQLite database on the device for synced metadata.
+* Store media files in a local cache directory.
+* Maintain cache manifest with checksum/size.
+* Delete unused old media only after confirming new content is downloaded.
+* Never delete currently playing media.
+
+### Playback engine
+
+Implement a robust player for ARM Linux.
+
+Preferred approach:
+
+* Device agent written in TypeScript/Node.js.
+* Fullscreen kiosk UI rendered in Chromium or a lightweight browser shell.
+* Playback UI uses HTML/CSS/JavaScript with image and video elements.
+* Device agent controls the browser/player and local cache.
+* Use systemd services to keep both agent and player running.
+* Use watchdog/restart behavior.
+
+Alternative if needed:
+
+* Use mpv/VLC as a fallback player for problematic videos, but the main reliable path should be processed MP4 playback in the browser.
+
+Playback requirements:
+
+* Smooth transitions between items.
+* No visible desktop.
+* Fullscreen on boot.
+* Hide cursor.
+* Disable screen blanking.
+* Disable power saving.
+* Recover after crash.
+* Resume after reboot.
+* Avoid browser cache dependency; use local file paths or local HTTP server.
+* Preload next media item.
+* Log playback start/end/errors.
+* Report current playing media to backend.
+* Support portrait/landscape screen rendering.
+* Support image duration.
+* Support video natural duration.
+* Support muted autoplay by default.
+* Add future option for audio enable/disable.
+
+### Admin dashboard
+
+Build a web dashboard with these pages:
+
+1. Login/register
+2. Organization selector/settings
+3. Devices list
+4. Device detail
+5. Media library
+6. Upload media
+7. Playlists
+8. Playlist editor
+9. Schedules
+10. Schedule editor
+11. Live status/monitoring
+12. Emergency override page
+13. Settings
+
+Device list should show:
+
+* Device name
+* Online/offline
+* Last seen
+* Current playlist
+* Current media
+* Orientation
+* App version
+* IP address as reported by device
+* OS info
+* Disk free
+* Cache status
+* Sync status
+* Errors/warnings
+
+Device detail should show:
+
+* Status
+* Screenshot if available
+* Logs
+* Assigned schedules
+* Cached media
+* Commands
+* Orientation setting
+* Timezone
+* Resolution
+* Last heartbeat
+* Software version
+* Reboot/restart buttons
+
+Media library should allow:
+
+* Upload files
+* Drag and drop upload
+* View thumbnails
+* See processing status
+* Filter by image/video
+* Filter by portrait/landscape/square
+* Rename media
+* Delete media
+* See duration/resolution
+* Reprocess media
+* Preview media
+
+Playlist editor should allow:
+
+* Create/edit playlist
+* Add media items
+* Reorder items
+* Set image duration
+* Set video duration override
+* Set fit mode
+* Show orientation warnings
+* Preview playlist
+* Save playlist
+
+Schedule editor should allow:
+
+* Assign playlist
+* Select devices/device groups
+* Choose active date range
+* Choose days of week
+* Choose start/end time
+* Set priority
+* Set timezone behavior
+* Enable/disable schedule
+* Preview which schedule will play now
+
+Emergency override should allow:
+
+* Select devices/device groups
+* Select playlist or single media item
+* Start emergency playback immediately
+* Stop emergency playback
+* Show clear warning that emergency overrides schedules
+
+### Backend API
+
+Use a modern backend stack.
+
+Recommended stack:
+
+* TypeScript
+* Node.js
+* Fastify or NestJS
+* PostgreSQL
+* Prisma ORM or Drizzle ORM
+* Redis for queues and device command fanout
+* BullMQ or similar for media processing jobs
+* S3-compatible object storage for media
+* WebSocket server for devices
+* JWT/session auth for users
+* Device token auth for players
+
+Create clean REST APIs for dashboard operations and device sync.
+
+API domains:
+
+* Auth
+* Organizations
+* Users
+* Devices
+* Device groups
+* Media
+* Playlists
+* Schedules
+* Emergency overrides
+* Device commands
+* Device heartbeats
+* Device logs
+* Device sync
+* Uploads
+* Processing jobs
+
+Device APIs:
+
+* POST /device/pair
+* POST /device/heartbeat
+* GET /device/sync
+* POST /device/sync-status
+* POST /device/logs
+* POST /device/playback-events
+* POST /device/screenshot
+* WebSocket /device/ws
+
+Admin APIs:
+
+* CRUD media
+* CRUD playlists
+* CRUD schedules
+* CRUD devices
+* CRUD device groups
+* issue commands
+* view status
+* emergency override
+
+### Sync protocol
+
+Design a versioned sync protocol.
+
+Device should call sync with:
+
+* device_id
+* current local manifest version
+* app version
+* current media cache checksums
+* free disk space
+* capabilities
+* current orientation
+* current timezone
+
+Backend responds with:
+
+* sync version
+* device settings
+* active schedules
+* playlists
+* media manifest
+* download URLs
+* checksums
+* emergency override state
+* commands if polling fallback is active
+
+Use checksums to avoid unnecessary downloads.
+
+Device applies sync transactionally:
+
+1. Download new media to temp files.
+2. Verify checksum.
+3. Store metadata in SQLite.
+4. Mark manifest ready.
+5. Switch playback to new manifest.
+6. Cleanup unused old files later.
+
+### Database schema
+
+Design and implement database models for at least:
+
+* User
+* Organization
+* OrganizationMember
+* Device
+* DeviceGroup
+* DeviceGroupMembership
+* DeviceToken
+* MediaAsset
+* MediaVariant
+* Playlist
+* PlaylistItem
+* Schedule
+* ScheduleDeviceAssignment
+* ScheduleGroupAssignment
+* EmergencyOverride
+* DeviceCommand
+* DeviceHeartbeat
+* DeviceLog
+* PlaybackEvent
+* MediaProcessingJob
+
+Include:
+
+* created_at
+* updated_at
+* soft delete where useful
+* organization scoping
+* indexes for common queries
+* constraints to prevent cross-organization access
+
+### Authentication and authorization
+
+Implement:
+
+* User login
+* User registration
+* Organization ownership
+* Organization membership
+* Roles:
+
+  * owner
+  * admin
+  * editor
+  * viewer
+* Device tokens separate from user tokens
+* All admin APIs must enforce organization access
+* Device APIs must enforce device token authentication
+* Device can only access its own assigned content
+* Pairing code flow must be secure and expiring
+
+### Security requirements
+
+* Use HTTPS/WSS in production.
+* Never expose internal device ports.
+* Use signed temporary media download URLs or authenticated media download endpoints.
+* Validate all uploaded files.
+* Do not trust client-provided MIME types.
+* Limit upload size through configuration.
+* Sanitize filenames.
+* Protect against path traversal.
+* Rate-limit auth endpoints and pairing endpoints.
+* Log security-sensitive events.
+* Store secrets in environment variables.
+* Provide .env.example files.
+* Avoid hardcoded production secrets.
+* Use secure password hashing.
+* Add CORS configuration.
+* Add CSRF protection if cookie auth is used.
+
+### Device installation
+
+Create an installer script for Raspberry Pi and ODROID-C4.
+
+Installer should:
+
+* Check OS/architecture
+* Install required packages
+* Install Node.js runtime or package bundled binary
+* Install Chromium or required player dependency
+* Install FFmpeg/ffprobe if needed
+* Create signage user
+* Create app directory
+* Create cache directory
+* Create config directory
+* Set permissions
+* Install systemd services
+* Configure autostart fullscreen player
+* Disable screen blanking/power saving
+* Hide mouse cursor
+* Prompt for backend URL and pairing code
+* Start services
+* Print diagnostic info
+
+Systemd services:
+
+* signage-agent.service
+* signage-player.service
+
+Add commands:
+
+* signage status
+* signage logs
+* signage restart
+* signage pair
+* signage config
+* signage clear-cache
+* signage healthcheck
+
+### Device configuration
+
+Device config file should include:
+
+* backend_url
+* device_id
+* device_token
+* device_name
+* orientation
+* timezone
+* cache_dir
+* local_db_path
+* player_url/local_port
+* log_level
+* update_channel
+* max_cache_size_gb
+
+Use a safe config format like JSON or YAML.
+
+### Monitoring and health
+
+Device must report:
+
+* online/offline
+* heartbeat timestamp
+* app version
+* OS
+* architecture
+* uptime
+* CPU usage if available
+* memory usage
+* disk usage
+* cache usage
+* display resolution
+* orientation
+* current playlist
+* current media
+* playback errors
+* download errors
+* sync status
+* last successful sync
+* network status
+
+Dashboard should surface errors clearly.
+
+### Logging
+
+Implement structured logs.
+
+Backend logs:
+
+* API requests
+* auth events
+* pairing events
+* media processing
+* device commands
+* WebSocket connect/disconnect
+* sync events
+* errors
+
+Device logs:
+
+* startup
+* config load
+* pairing
+* WebSocket status
+* sync
+* downloads
+* playback events
+* cache cleanup
+* commands
+* errors
+
+Allow the dashboard to request recent device logs.
+
+### Testing
+
+Add tests for:
+
+* Scheduling conflict resolution
+* Timezone handling
+* Playlist ordering
+* Media orientation detection
+* Device pairing expiration
+* Device authentication
+* Organization scoping
+* Sync manifest generation
+* Cache manifest comparison
+* Emergency override priority
+* API authorization
+* Media processing job state transitions
+
+Add at least:
+
+* Unit tests
+* API tests
+* Device sync tests
+* Basic frontend component tests where practical
+
+### Development environment
+
+Provide a complete local dev setup using Docker Compose:
+
+* backend
+* PostgreSQL
+* Redis
+* MinIO or local S3-compatible storage
+* media worker
+* frontend
+* optional mock device
+
+Provide commands:
+
+* install dependencies
+* start dev environment
+* run migrations
+* seed database
+* run backend
+* run frontend
+* run worker
+* run mock device
+* run tests
+* build production
+
+### Deliverables
+
+Generate the full project structure and code.
+
+Include:
+
+* README.md
+* architecture.md
+* device-install.md
+* API documentation
+* .env.example
+* docker-compose.yml
+* backend app
+* frontend app
+* device agent app
+* player UI
+* media worker
+* database schema/migrations
+* seed data
+* tests
+* installer scripts
+* systemd service files
+
+### Suggested monorepo structure
+
+Use this structure unless there is a better reason not to:
+
+/signage-platform
+/apps
+/api
+/web
+/device-agent
+/player
+/worker
+/mock-device
+/packages
+/shared
+/database
+/media
+/sync-protocol
+/scheduler
+/infra
+/docker
+/systemd
+/scripts
+/docs
+architecture.md
+api.md
+device-install.md
+sync-protocol.md
+docker-compose.yml
+package.json
+pnpm-workspace.yaml
+README.md
+
+Use TypeScript throughout where practical.
+
+### UI expectations
+
+Build a clean, functional dashboard. It does not need fancy branding, but it must be usable.
+
+Use:
+
+* React
+* Vite or Next.js
+* TypeScript
+* Tailwind CSS or similar
+* Form validation
+* Clear loading states
+* Clear error states
+* Tables for media/devices/schedules
+* Simple playlist drag-and-drop
+* Media previews
+* Orientation badges
+* Online/offline badges
+
+### Important implementation details
+
+Do not create only mock screens. Build real functionality.
+
+Start with an MVP but structure it for production.
+
+MVP must include:
+
+* User login
+* Organization
+* Device pairing
+* Device heartbeat
+* Device WebSocket connection
+* Media upload
+* FFmpeg metadata extraction
+* Video transcoding to MP4/H.264/AAC
+* Image thumbnail generation
+* Media library
+* Playlist creation
+* Schedule creation
+* Device sync manifest
+* Device local cache
+* Offline playback
+* Portrait/landscape support
+* Fullscreen player
+* Device status dashboard
+* Emergency override
+* Basic tests
+* Installer script
+
+Where hardware-specific behavior cannot be fully tested in development, create abstractions and provide clear TODO notes, but still implement the general Linux path.
+
+### Acceptance criteria
+
+The project is acceptable when:
+
+1. I can run the backend, worker, database, Redis, object storage, and frontend locally with Docker Compose.
+2. I can create a user and organization.
+3. I can upload an image and video.
+4. The backend processes media and creates thumbnails/processed video variants.
+5. I can create a playlist.
+6. I can create a schedule.
+7. I can run a mock device locally.
+8. The mock device pairs with the backend.
+9. The mock device receives a sync manifest.
+10. The mock device downloads assigned media.
+11. The player displays the scheduled playlist.
+12. If the backend is stopped, the device keeps playing cached content.
+13. The dashboard shows device online/offline status.
+14. I can send a remote refresh/restart command through the outbound WebSocket.
+15. Portrait and landscape media are detected and shown correctly.
+16. The codebase includes clear install instructions for Raspberry Pi and ODROID-C4.
+17. The device services are configured with systemd files.
+18. Tests cover scheduling, sync, pairing, authorization, and orientation handling.
+
+### Build approach
+
+Work iteratively.
+
+First inspect the repository. If it is empty, create the monorepo from scratch.
+
+Then implement in this order:
+
+1. Monorepo setup
+2. Shared types
+3. Database schema
+4. Backend auth and organization model
+5. Device model and pairing
+6. WebSocket device channel
+7. Media upload and processing worker
+8. Playlist and schedule models
+9. Sync manifest generation
+10. Device agent local SQLite/cache
+11. Player UI
+12. Dashboard pages
+13. Emergency override
+14. Installer scripts and systemd services
+15. Tests and documentation
+
+After each major step, run formatting, type checks, and tests.
+
+Be explicit about any trade-offs.
+
+Do not skip hard parts by stubbing them unless impossible in the current environment. If something must be stubbed, clearly mark it with TODO and provide the interface.
+
+### Product decisions to use unless I override them
+
+* Backend: Node.js + TypeScript + Fastify
+* Frontend: React + Vite + TypeScript
+* Database: PostgreSQL
+* ORM: Prisma
+* Queue: Redis + BullMQ
+* Object storage: S3-compatible, MinIO for local dev
+* Device local DB: SQLite
+* Device connection: outbound HTTPS + WSS
+* Player: Chromium fullscreen kiosk with local player UI
+* Media normalization: FFmpeg to H.264/AAC MP4
+* Default image duration: 10 seconds
+* Default fit mode: contain
+* Default device orientation: landscape
+* Default schedule fallback: assigned default playlist
+* Default autoplay audio: muted
+* Package manager: pnpm
+
+### Questions to preserve for later product refinement
+
+If any of these are not specified, implement with reasonable defaults and document the settings:
+
+* Maximum upload size
+* Maximum video resolution/bitrate
+* Whether 4K playback is required
+* Whether audio is required
+* Whether multi-zone screen layouts are required
+* Whether touchscreen support is needed
+* Whether proof-of-play reports are required
+* Whether billing/multi-tenant SaaS features are required
+* Whether devices need automatic OTA software updates in v1
+* Whether content approval workflows are required
+* Whether users need templates, text overlays, clocks, weather, RSS, or webpages
+
+You are Claude Code. Build a production-ready digital signage software system for Raspberry Pi and ODROID-C4 devices.
+
+The product must allow users to manage signage screens remotely without setting up VPN, port forwarding, static IPs, or on-site router changes. Devices must connect outbound to the cloud service and stay controllable through that outbound connection.
+
+The system must support scheduling of image and video content, reliable playback, portrait and landscape screens, offline playback, and remote device monitoring.
+
+Build this as a complete monorepo with clear setup instructions, runnable development environment, database migrations, API docs, tests, and deployment scripts.
+
+## 1. Product summary
+
+Create a digital signage platform with three main parts:
+
+1. Cloud backend
+   A server that handles users, organizations, devices, media, schedules, playlists, device commands, device status, and content synchronization.
+
+2. Web admin dashboard
+   A browser-based dashboard where users can upload media, create playlists, schedule content, register devices, monitor devices, and control screens remotely.
+
+3. Linux device player/agent
+   Software that runs on Raspberry Pi and ODROID-C4. It must boot into fullscreen signage playback, connect outbound to the backend, download assigned content, cache it locally, play scheduled media, report status, and recover automatically after network loss, reboot, or crashes.
+
+## 2. Hardware and operating system targets
+
+Target devices:
+
+* Raspberry Pi 4 and Raspberry Pi 5
+* ODROID-C4
+* ARM64 Linux preferred
+* Raspberry Pi OS 64-bit for Raspberry Pi
+* Ubuntu/Debian-based Linux for ODROID-C4
+
+The player must be designed for low-power ARM devices and must avoid heavy desktop dependencies where possible.
+
+## 3. Core requirements
+
+### Remote connectivity
+
+The device must never require inbound connections.
+
+Implement an outbound-only connection model:
+
+* Device initiates connection to cloud backend over HTTPS and secure WebSocket.
+* Device maintains a persistent WebSocket connection for commands and status updates.
+* If WebSocket fails, device falls back to periodic HTTPS polling.
+* Backend can send commands through the existing outbound connection.
+* No VPN.
+* No port forwarding.
+* No static IP requirement.
+* Devices behind NAT/firewalls must still work as long as outbound HTTPS/WSS traffic is allowed.
+
+Required remote commands:
+
+* Restart player
+* Reboot device
+* Refresh content
+* Clear cache
+* Take screenshot if technically available
+* Identify device
+* Change orientation
+* Change assigned playlist/schedule
+* Update device settings
+* Show emergency content
+* Stop emergency content
+* Send logs
+* Run health check
+* Trigger software update placeholder/hook
+
+### Device pairing
+
+Implement secure device registration:
+
+* Admin creates a device in the dashboard.
+* System generates a short pairing code and/or QR code.
+* Device setup flow asks for server URL and pairing code.
+* Device calls backend to pair.
+* Backend returns a unique device ID and long-lived device token.
+* Store token securely on the device.
+* Device authenticates future requests using its token.
+* Pairing codes must expire.
+* Pairing codes must be single-use.
+* Admin can revoke a device token.
+
+### Media upload and processing
+
+Support uploading:
+
+* Images: JPG, JPEG, PNG, WebP
+* Videos: MP4, MOV, MKV, AVI, WebM, M4V and other common FFmpeg-supported formats
+
+Important: playback must be reliable on Raspberry Pi and ODROID-C4. Do not assume every uploaded video format can be played natively. Implement a media processing pipeline that accepts many formats and converts them into a signage-safe playback format.
+
+Use FFmpeg/ffprobe for:
+
+* Inspecting media metadata
+* Detecting duration
+* Detecting resolution
+* Detecting orientation
+* Generating thumbnails
+* Transcoding unsupported or non-optimal videos
+* Normalizing videos to H.264 video + AAC audio inside MP4 container
+* Creating a lower-bitrate fallback version if needed
+
+Store original media and processed media separately.
+
+Media fields:
+
+* id
+* organization_id
+* original_filename
+* media_type: image/video
+* original_mime_type
+* processed_mime_type
+* original_url/storage_key
+* processed_url/storage_key
+* thumbnail_url/storage_key
+* duration_seconds
+* width
+* height
+* orientation: portrait/landscape/square
+* processing_status: pending/processing/ready/failed
+* processing_error
+* created_at
+* updated_at
+
+### Portrait and landscape behavior
+
+The system must fully support both portrait and landscape displays.
+
+Important behavior:
+
+* Portrait images are uploaded as real portrait files.
+* Landscape images are uploaded as real landscape files.
+* Do not require users to rotate the media manually after upload.
+* Detect media width and height.
+* Automatically classify media as portrait, landscape, or square.
+* Devices have a configured screen orientation:
+
+  * landscape
+  * portrait
+  * inverted_landscape
+  * inverted_portrait
+* The device player must render content correctly for the configured screen orientation.
+* The admin dashboard must show whether content is portrait or landscape.
+* Playlists and schedules should indicate if media orientation does not match the target device orientation.
+* Provide an option to either:
+
+  * block mismatched content from being assigned, or
+  * allow it with a fit mode.
+
+Fit modes:
+
+* contain: show full image/video, possible black bars
+* cover: fill screen, crop overflow
+* stretch: fill screen without preserving aspect ratio
+* original: center at original aspect ratio
+
+Default fit mode: contain.
+
+Device orientation must be configurable remotely from the dashboard.
+
+### Scheduling
+
+Build a flexible scheduling system.
+
+Required schedule types:
+
+1. Always active playlist
+2. Date range schedule
+3. Weekly recurring schedule
+4. Time-of-day schedule
+5. Priority/emergency override
+
+Examples:
+
+* Play playlist A every weekday from 09:00 to 17:00.
+* Play playlist B every Saturday and Sunday.
+* Play campaign C from 2026-07-01 through 2026-07-31.
+* Play emergency message immediately on selected devices.
+* Fall back to default playlist if no schedule matches.
+
+Scheduling rules:
+
+* Each device can have one or more assigned schedules.
+* Each schedule points to a playlist.
+* A playlist contains ordered media items.
+* Each playlist item has duration.
+* Images require a configurable display duration.
+* Videos should play to their natural duration by default.
+* Allow overriding video duration.
+* Allow per-item fit mode.
+* Allow per-playlist loop mode.
+* Allow schedule priority.
+* If multiple schedules match, highest priority wins.
+* Emergency override always wins.
+* Device must be able to calculate schedule locally after syncing so playback continues offline.
+
+Timezone handling:
+
+* Each device has a timezone.
+* Schedules are interpreted in the device timezone unless specified otherwise.
+* Store times in a robust format.
+* Avoid bugs around DST.
+* Display timezone clearly in the dashboard.
+
+### Offline playback
+
+The device must keep playing when internet is unavailable.
+
+Required behavior:
+
+* Device downloads and caches all currently required media.
+* Device stores schedules, playlists, and media metadata locally.
+* Device continues playing the last valid schedule offline.
+* Device keeps a local playback queue.
+* Device retries failed downloads.
+* Device reports sync status when back online.
+* Device must never show a blank screen just because internet is down.
+* If no content is cached, show a local fallback screen with device name, pairing/status info, and error message.
+
+Local storage:
+
+* Use a local SQLite database on the device for synced metadata.
+* Store media files in a local cache directory.
+* Maintain cache manifest with checksum/size.
+* Delete unused old media only after confirming new content is downloaded.
+* Never delete currently playing media.
+
+### Playback engine
+
+Implement a robust player for ARM Linux.
+
+Preferred approach:
+
+* Device agent written in TypeScript/Node.js.
+* Fullscreen kiosk UI rendered in Chromium or a lightweight browser shell.
+* Playback UI uses HTML/CSS/JavaScript with image and video elements.
+* Device agent controls the browser/player and local cache.
+* Use systemd services to keep both agent and player running.
+* Use watchdog/restart behavior.
+
+Alternative if needed:
+
+* Use mpv/VLC as a fallback player for problematic videos, but the main reliable path should be processed MP4 playback in the browser.
+
+Playback requirements:
+
+* Smooth transitions between items.
+* No visible desktop.
+* Fullscreen on boot.
+* Hide cursor.
+* Disable screen blanking.
+* Disable power saving.
+* Recover after crash.
+* Resume after reboot.
+* Avoid browser cache dependency; use local file paths or local HTTP server.
+* Preload next media item.
+* Log playback start/end/errors.
+* Report current playing media to backend.
+* Support portrait/landscape screen rendering.
+* Support image duration.
+* Support video natural duration.
+* Support muted autoplay by default.
+* Audio is out of scope for v1, but the architecture should not prevent adding audio support later.
+
+### Admin dashboard
+
+Build a web dashboard with these pages:
+
+1. Login/register
+2. Organization selector/settings
+3. Devices list
+4. Device detail
+5. Media library
+6. Upload media
+7. Playlists
+8. Playlist editor
+9. Schedules
+10. Schedule editor
+11. Live status/monitoring
+12. Emergency override page
+13. Settings
+
+Device list should show:
+
+* Device name
+* Online/offline
+* Last seen
+* Current playlist
+* Current media
+* Orientation
+* App version
+* IP address as reported by device
+* OS info
+* Disk free
+* Cache status
+* Sync status
+* Errors/warnings
+
+Device detail should show:
+
+* Status
+* Screenshot if available
+* Logs
+* Assigned schedules
+* Cached media
+* Commands
+* Orientation setting
+* Timezone
+* Resolution
+* Last heartbeat
+* Software version
+* Reboot/restart buttons
+
+Media library should allow:
+
+* Upload files
+* Drag and drop upload
+* View thumbnails
+* See processing status
+* Filter by image/video
+* Filter by portrait/landscape/square
+* Rename media
+* Delete media
+* See duration/resolution
+* Reprocess media
+* Preview media
+
+Playlist editor should allow:
+
+* Create/edit playlist
+* Add media items
+* Reorder items
+* Set image duration
+* Set video duration override
+* Set fit mode
+* Show orientation warnings
+* Preview playlist
+* Save playlist
+
+Schedule editor should allow:
+
+* Assign playlist
+* Select devices/device groups
+* Choose active date range
+* Choose days of week
+* Choose start/end time
+* Set priority
+* Set timezone behavior
+* Enable/disable schedule
+* Preview which schedule will play now
+
+Emergency override should allow:
+
+* Select devices/device groups
+* Select playlist or single media item
+* Start emergency playback immediately
+* Stop emergency playback
+* Show clear warning that emergency overrides schedules
+
+### Backend API
+
+Use a modern backend stack.
+
+Recommended stack:
+
+* TypeScript
+* Node.js
+* Fastify or NestJS
+* PostgreSQL
+* Prisma ORM or Drizzle ORM
+* Redis for queues and device command fanout
+* BullMQ or similar for media processing jobs
+* S3-compatible object storage for media
+* WebSocket server for devices
+* JWT/session auth for users
+* Device token auth for players
+
+Create clean REST APIs for dashboard operations and device sync.
+
+API domains:
+
+* Auth
+* Organizations
+* Users
+* Devices
+* Device groups
+* Media
+* Playlists
+* Schedules
+* Emergency overrides
+* Device commands
+* Device heartbeats
+* Device logs
+* Device sync
+* Uploads
+* Processing jobs
+
+Device APIs:
+
+* POST /device/pair
+* POST /device/heartbeat
+* GET /device/sync
+* POST /device/sync-status
+* POST /device/logs
+* POST /device/playback-events
+* POST /device/screenshot
+* WebSocket /device/ws
+
+Admin APIs:
+
+* CRUD media
+* CRUD playlists
+* CRUD schedules
+* CRUD devices
+* CRUD device groups
+* issue commands
+* view status
+* emergency override
+
+### Sync protocol
+
+Design a versioned sync protocol.
+
+Device should call sync with:
+
+* device_id
+* current local manifest version
+* app version
+* current media cache checksums
+* free disk space
+* capabilities
+* current orientation
+* current timezone
+
+Backend responds with:
+
+* sync version
+* device settings
+* active schedules
+* playlists
+* media manifest
+* download URLs
+* checksums
+* emergency override state
+* commands if polling fallback is active
+
+Use checksums to avoid unnecessary downloads.
+
+Device applies sync transactionally:
+
+1. Download new media to temp files.
+2. Verify checksum.
+3. Store metadata in SQLite.
+4. Mark manifest ready.
+5. Switch playback to new manifest.
+6. Cleanup unused old files later.
+
+### Database schema
+
+Design and implement database models for at least:
+
+* User
+* Organization
+* OrganizationMember
+* Device
+* DeviceGroup
+* DeviceGroupMembership
+* DeviceToken
+* MediaAsset
+* MediaVariant
+* Playlist
+* PlaylistItem
+* Schedule
+* ScheduleDeviceAssignment
+* ScheduleGroupAssignment
+* EmergencyOverride
+* DeviceCommand
+* DeviceHeartbeat
+* DeviceLog
+* PlaybackEvent
+* MediaProcessingJob
+
+Include:
+
+* created_at
+* updated_at
+* soft delete where useful
+* organization scoping
+* indexes for common queries
+* constraints to prevent cross-organization access
+
+### Authentication and authorization
+
+Implement:
+
+* User login
+* User registration
+* Organization ownership
+* Organization membership
+* Roles:
+
+  * owner
+  * admin
+  * editor
+  * viewer
+* Device tokens separate from user tokens
+* All admin APIs must enforce organization access
+* Device APIs must enforce device token authentication
+* Device can only access its own assigned content
+* Pairing code flow must be secure and expiring
+
+### Security requirements
+
+* Use HTTPS/WSS in production.
+* Never expose internal device ports.
+* Use signed temporary media download URLs or authenticated media download endpoints.
+* Validate all uploaded files.
+* Do not trust client-provided MIME types.
+* Limit upload size through configuration.
+* Sanitize filenames.
+* Protect against path traversal.
+* Rate-limit auth endpoints and pairing endpoints.
+* Log security-sensitive events.
+* Store secrets in environment variables.
+* Provide .env.example files.
+* Avoid hardcoded production secrets.
+* Use secure password hashing.
+* Add CORS configuration.
+* Add CSRF protection if cookie auth is used.
+
+### Device installation
+
+Create an installer script for Raspberry Pi and ODROID-C4.
+
+Installer should:
+
+* Check OS/architecture
+* Install required packages
+* Install Node.js runtime or package bundled binary
+* Install Chromium or required player dependency
+* Install FFmpeg/ffprobe if needed
+* Create signage user
+* Create app directory
+* Create cache directory
+* Create config directory
+* Set permissions
+* Install systemd services
+* Configure autostart fullscreen player
+* Disable screen blanking/power saving
+* Hide mouse cursor
+* Prompt for backend URL and pairing code
+* Start services
+* Print diagnostic info
+
+Systemd services:
+
+* signage-agent.service
+* signage-player.service
+
+Add commands:
+
+* signage status
+* signage logs
+* signage restart
+* signage pair
+* signage config
+* signage clear-cache
+* signage healthcheck
+
+### Device configuration
+
+Device config file should include:
+
+* backend_url
+* device_id
+* device_token
+* device_name
+* orientation
+* timezone
+* cache_dir
+* local_db_path
+* player_url/local_port
+* log_level
+* update_channel
+* max_cache_size_gb
+
+Use a safe config format like JSON or YAML.
+
+### Monitoring and health
+
+Device must report:
+
+* online/offline
+* heartbeat timestamp
+* app version
+* OS
+* architecture
+* uptime
+* CPU usage if available
+* memory usage
+* disk usage
+* cache usage
+* display resolution
+* orientation
+* current playlist
+* current media
+* playback errors
+* download errors
+* sync status
+* last successful sync
+* network status
+
+Dashboard should surface errors clearly.
+
+### Logging
+
+Implement structured logs.
+
+Backend logs:
+
+* API requests
+* auth events
+* pairing events
+* media processing
+* device commands
+* WebSocket connect/disconnect
+* sync events
+* errors
+
+Device logs:
+
+* startup
+* config load
+* pairing
+* WebSocket status
+* sync
+* downloads
+* playback events
+* cache cleanup
+* commands
+* errors
+
+Allow the dashboard to request recent device logs.
+
+### Testing
+
+Add tests for:
+
+* Scheduling conflict resolution
+* Timezone handling
+* Playlist ordering
+* Media orientation detection
+* Device pairing expiration
+* Device authentication
+* Organization scoping
+* Sync manifest generation
+* Cache manifest comparison
+* Emergency override priority
+* API authorization
+* Media processing job state transitions
+
+Add at least:
+
+* Unit tests
+* API tests
+* Device sync tests
+* Basic frontend component tests where practical
+
+### Development environment
+
+Provide a complete local dev setup using Docker Compose:
+
+* backend
+* PostgreSQL
+* Redis
+* MinIO or local S3-compatible storage
+* media worker
+* frontend
+* optional mock device
+
+Provide commands:
+
+* install dependencies
+* start dev environment
+* run migrations
+* seed database
+* run backend
+* run frontend
+* run worker
+* run mock device
+* run tests
+* build production
+
+### Deliverables
+
+Generate the full project structure and code.
+
+Include:
+
+* README.md
+* architecture.md
+* device-install.md
+* API documentation
+* .env.example
+* docker-compose.yml
+* backend app
+* frontend app
+* device agent app
+* player UI
+* media worker
+* database schema/migrations
+* seed data
+* tests
+* installer scripts
+* systemd service files
+
+### Suggested monorepo structure
+
+Use this structure unless there is a better reason not to:
+
+/signage-platform
+/apps
+/api
+/web
+/device-agent
+/player
+/worker
+/mock-device
+/packages
+/shared
+/database
+/media
+/sync-protocol
+/scheduler
+/infra
+/docker
+/systemd
+/scripts
+/docs
+architecture.md
+api.md
+device-install.md
+sync-protocol.md
+docker-compose.yml
+package.json
+pnpm-workspace.yaml
+README.md
+
+Use TypeScript throughout where practical.
+
+### UI expectations
+
+Build a clean, functional dashboard. It does not need fancy branding, but it must be usable.
+
+Use:
+
+* React
+* Vite or Next.js
+* TypeScript
+* Tailwind CSS or similar
+* Form validation
+* Clear loading states
+* Clear error states
+* Tables for media/devices/schedules
+* Simple playlist drag-and-drop
+* Media previews
+* Orientation badges
+* Online/offline badges
+
+### Important implementation details
+
+Do not create only mock screens. Build real functionality.
+
+Start with an MVP but structure it for production.
+
+MVP must include:
+
+* User login
+* Organization
+* Device pairing
+* Device heartbeat
+* Device WebSocket connection
+* Media upload
+* FFmpeg metadata extraction
+* Video transcoding to MP4/H.264/AAC
+* Image thumbnail generation
+* Media library
+* Playlist creation
+* Schedule creation
+* Device sync manifest
+* Device local cache
+* Offline playback
+* Portrait/landscape support
+* Fullscreen player
+* Device status dashboard
+* Emergency override
+* Basic tests
+* Installer script
+
+Where hardware-specific behavior cannot be fully tested in development, create abstractions and provide clear TODO notes, but still implement the general Linux path.
+
+### Acceptance criteria
+
+The project is acceptable when:
+
+1. I can run the backend, worker, database, Redis, object storage, and frontend locally with Docker Compose.
+2. I can create a user and organization.
+3. I can upload an image and video.
+4. The backend processes media and creates thumbnails/processed video variants.
+5. I can create a playlist.
+6. I can create a schedule.
+7. I can run a mock device locally.
+8. The mock device pairs with the backend.
+9. The mock device receives a sync manifest.
+10. The mock device downloads assigned media.
+11. The player displays the scheduled playlist.
+12. If the backend is stopped, the device keeps playing cached content.
+13. The dashboard shows device online/offline status.
+14. I can send a remote refresh/restart command through the outbound WebSocket.
+15. Portrait and landscape media are detected and shown correctly.
+16. The codebase includes clear install instructions for Raspberry Pi and ODROID-C4.
+17. The device services are configured with systemd files.
+18. Tests cover scheduling, sync, pairing, authorization, and orientation handling.
+
+### Build approach
+
+Work iteratively.
+
+First inspect the repository. If it is empty, create the monorepo from scratch.
+
+Then implement in this order:
+
+1. Monorepo setup
+2. Shared types
+3. Database schema
+4. Backend auth and organization model
+5. Device model and pairing
+6. WebSocket device channel
+7. Media upload and processing worker
+8. Playlist and schedule models
+9. Sync manifest generation
+10. Device agent local SQLite/cache
+11. Player UI
+12. Dashboard pages
+13. Emergency override
+14. Installer scripts and systemd services
+15. Tests and documentation
+
+After each major step, run formatting, type checks, and tests.
+
+Be explicit about any trade-offs.
+
+Do not skip hard parts by stubbing them unless impossible in the current environment. If something must be stubbed, clearly mark it with TODO and provide the interface.
+
+### Product decisions to use unless I override them
+
+* Backend: Node.js + TypeScript + Fastify
+* Frontend: React + Vite + TypeScript
+* Database: PostgreSQL
+* ORM: Prisma
+* Queue: Redis + BullMQ
+* Object storage: S3-compatible, MinIO for local dev
+* Device local DB: SQLite
+* Device connection: outbound HTTPS + WSS
+* Player: Chromium fullscreen kiosk with local player UI
+* Media normalization: FFmpeg to H.264/AAC MP4
+* Default image duration: 10 seconds
+* Default fit mode: contain
+* Default device orientation: landscape
+* Default schedule fallback: assigned default playlist
+* Default autoplay audio: muted
+* Package manager: pnpm
+
+### Questions to preserve for later product refinement
+
+If any of these are not specified, implement with reasonable defaults and document the settings:
+
+* Maximum upload size
+* Maximum video resolution/bitrate
+* Whether 4K playback is required
+* Whether audio is required
+* Whether multi-zone screen layouts are required
+* Whether touchscreen support is needed
+* Whether proof-of-play reports are required
+* Whether billing/multi-tenant SaaS features are required
+* Whether devices need automatic OTA software updates in v1
+* Whether content approval workflows are required
+* Whether users need templates, text overlays, clocks, weather, RSS, or webpages
+

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Signage Player</title>
+  </head>
+  <body>
+    <div id="stage">
+      <div id="layer-a" class="layer"></div>
+      <div id="layer-b" class="layer"></div>
+      <div id="fallback" class="hidden">
+        <div class="fallback-inner">
+          <div id="fb-name">Signage</div>
+          <div id="fb-message"></div>
+          <div id="fb-badges">
+            <span id="fb-paired" class="badge"></span>
+            <span id="fb-online" class="badge"></span>
+          </div>
+          <div id="fb-clock"></div>
+        </div>
+      </div>
+      <div id="identify" class="hidden"></div>
+      <div id="offline-dot" class="hidden" title="offline"></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
