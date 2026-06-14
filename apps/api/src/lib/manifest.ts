@@ -5,15 +5,27 @@ import {
   type ManifestEmergency,
   type ManifestMedia,
   type ManifestPlaylist,
+  type ManifestPriorityRule,
   type ManifestSchedule,
   type SyncManifest,
 } from '@signage/sync-protocol';
 import { notFound } from './errors';
+import { computeFolderPaths, expandFolderIds, type FolderNode } from './folders';
+import {
+  expandPlaylistItems,
+  applyOrderMode,
+  isPlayable,
+  resolvePriorityRuleMedia,
+} from './playlist-resolver';
 
 /**
  * Builds the complete sync manifest for one device: settings, assigned
  * schedules (direct + via groups), referenced playlists, the active emergency
  * override and the media set the device must cache.
+ *
+ * Dynamic folder entries and priority rule assignments are resolved into
+ * concrete media here, at sync time — devices never need folder data and can
+ * play folder/random/priority playlists fully offline.
  *
  * Only `ready` media with a checksum is included — a playlist item whose
  * media is still processing is silently skipped until it becomes ready.
@@ -70,36 +82,113 @@ export async function buildSyncManifest(
         orderBy: { position: 'asc' },
         include: { mediaAsset: true },
       },
+      priorityRules: {
+        where: { deletedAt: null, enabled: true },
+        orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+        include: { assignments: { include: { mediaAsset: true } } },
+      },
     },
   });
   const existingPlaylistIds = new Set(playlists.map((p) => p.id));
+
+  // Load the folder tree once, then every folder's media that any playlist
+  // folder entry or priority rule assignment can reach.
+  const folders: FolderNode[] = await prisma.mediaFolder.findMany({
+    where: { organizationId: device.organizationId, deletedAt: null },
+    select: { id: true, parentFolderId: true, name: true },
+  });
+  const folderPaths = computeFolderPaths(folders);
+
+  const wantedFolderIds = new Set<string>();
+  for (const playlist of playlists) {
+    for (const item of playlist.items) {
+      if (item.type === 'folder' && item.folderId) {
+        for (const id of expandFolderIds(folders, item.folderId, item.includeSubfolders)) {
+          wantedFolderIds.add(id);
+        }
+      }
+    }
+    for (const rule of playlist.priorityRules) {
+      for (const assignment of rule.assignments) {
+        if (assignment.folderId) {
+          for (const id of expandFolderIds(
+            folders,
+            assignment.folderId,
+            assignment.includeSubfolders,
+          )) {
+            wantedFolderIds.add(id);
+          }
+        }
+      }
+    }
+  }
+  const folderMediaPool =
+    wantedFolderIds.size > 0
+      ? await prisma.mediaAsset.findMany({
+          where: {
+            organizationId: device.organizationId,
+            deletedAt: null,
+            folderId: { in: [...wantedFolderIds] },
+          },
+        })
+      : [];
 
   const mediaMap = new Map<string, ManifestMedia>();
   const manifestPlaylists: ManifestPlaylist[] = [];
 
   for (const playlist of playlists) {
-    const items = playlist.items.filter(
-      (item) =>
-        item.mediaAsset.deletedAt == null &&
-        item.mediaAsset.processingStatus === 'ready' &&
-        item.mediaAsset.checksumSha256 != null &&
-        item.mediaAsset.processedStorageKey != null,
-    );
+    const entries = applyOrderMode(
+      expandPlaylistItems(playlist.items, folders, folderMediaPool, folderPaths),
+      playlist.playbackOrderMode,
+    ).filter((entry) => isPlayable(entry.media));
+
+    const priorityRules: ManifestPriorityRule[] =
+      playlist.playbackOrderMode === 'random_with_priority_rules'
+        ? playlist.priorityRules
+            .map((rule) => {
+              const ruleMedia = resolvePriorityRuleMedia(
+                rule.assignments,
+                folders,
+                folderMediaPool,
+              ).filter(isPlayable);
+              for (const media of ruleMedia) addMedia(mediaMap, media);
+              return {
+                id: rule.id,
+                name: rule.name,
+                intervalCount: rule.intervalCount,
+                selectionMode: rule.selectionMode as ManifestPriorityRule['selectionMode'],
+                position: rule.position,
+                createdAt: rule.createdAt.toISOString(),
+                mediaIds: ruleMedia.map((m) => m.id),
+              };
+            })
+            .filter((rule) => rule.mediaIds.length > 0)
+        : [];
+
     manifestPlaylists.push({
       id: playlist.id,
       name: playlist.name,
       loop: playlist.loop,
       defaultImageDurationSeconds: playlist.defaultImageDurationSeconds,
-      items: items.map((item) => ({
-        id: item.id,
-        mediaId: item.mediaAssetId,
-        position: item.position,
-        durationSeconds: item.durationSeconds,
-        fitMode: item.fitMode as ManifestPlaylist['items'][number]['fitMode'],
-        enabled: item.enabled,
+      playbackOrderMode: playlist.playbackOrderMode as ManifestPlaylist['playbackOrderMode'],
+      items: entries.map((entry, index) => ({
+        id: entry.entryId,
+        mediaId: entry.media.id,
+        position: index,
+        durationSeconds: entry.durationSeconds,
+        fitMode: entry.fitMode as ManifestPlaylist['items'][number]['fitMode'],
+        enabled: true,
+        ...(entry.source === 'folder'
+          ? {
+              source: 'folder' as const,
+              sourceFolderId: entry.sourceFolderId,
+              sourceFolderPath: entry.sourceFolderPath,
+            }
+          : {}),
       })),
+      ...(priorityRules.length > 0 ? { priorityRules } : {}),
     });
-    for (const item of items) addMedia(mediaMap, item.mediaAsset);
+    for (const entry of entries) addMedia(mediaMap, entry.media);
   }
 
   // Emergency override targeting a single media asset.

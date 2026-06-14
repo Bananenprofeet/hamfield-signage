@@ -5,7 +5,11 @@ import {
   FIT_MODES,
   LOG_LEVELS,
   ORG_ROLES,
+  ORG_STATUSES,
   PLAYBACK_EVENT_TYPES,
+  PLAYBACK_ORDER_MODES,
+  PLAYED_AS_VALUES,
+  PRIORITY_SELECTION_MODES,
 } from './enums';
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -25,16 +29,22 @@ export function isValidTimezone(tz: string): boolean {
 }
 
 // ---------- Auth ----------
-export const registerSchema = z.object({
-  email: z.string().email().max(255),
-  password: z.string().min(8).max(128),
-  name: z.string().min(1).max(100),
-  organizationName: z.string().min(1).max(100),
-});
+// Public registration was removed in v2: accounts are created by a
+// superadmin (or organization admins for their own organization).
+
+export const passwordSchema = z.string().min(8).max(128);
+
+/** Stronger requirement for superadmin accounts. */
+export const superadminPasswordSchema = z.string().min(12).max(128);
 
 export const loginSchema = z.object({
   email: z.string().email().max(255),
   password: z.string().min(1).max(128),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1).max(128),
+  newPassword: passwordSchema,
 });
 
 // ---------- Organizations ----------
@@ -90,9 +100,29 @@ export const issueCommandSchema = z.object({
   payload: z.record(z.unknown()).default({}),
 });
 
+// ---------- Media folders ----------
+export const createFolderSchema = z.object({
+  name: z.string().min(1).max(120),
+  parentFolderId: z.string().nullable().optional(),
+});
+
+export const updateFolderSchema = z.object({
+  name: z.string().min(1).max(120).optional(),
+  /** null moves the folder to the root. */
+  parentFolderId: z.string().nullable().optional(),
+});
+
+export const deleteFolderSchema = z.object({
+  /** What to do with media inside the folder (and its subfolders). */
+  strategy: z.enum(['move_to_root', 'move_to_folder', 'delete_media']),
+  targetFolderId: z.string().optional(),
+});
+
 // ---------- Media ----------
 export const updateMediaSchema = z.object({
-  name: z.string().min(1).max(255),
+  name: z.string().min(1).max(255).optional(),
+  /** null moves the media to the root folder. */
+  folderId: z.string().nullable().optional(),
 });
 
 export const mediaListQuerySchema = z.object({
@@ -100,23 +130,56 @@ export const mediaListQuerySchema = z.object({
   orientation: z.enum(['landscape', 'portrait', 'square']).optional(),
   status: z.enum(['pending', 'processing', 'ready', 'failed']).optional(),
   search: z.string().max(255).optional(),
+  /** 'root' = unfiled media only; folder id = that folder; omitted = all media. */
+  folderId: z.string().max(64).optional(),
+  usedInPlaylist: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => (v === undefined ? undefined : v === 'true')),
+  sort: z
+    .enum(['name', 'createdAt', 'updatedAt', 'type', 'orientation', 'duration', 'playCount'])
+    .default('createdAt'),
+  order: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
 });
 
-// ---------- Playlists ----------
-export const playlistItemInputSchema = z.object({
-  mediaAssetId: z.string().min(1),
-  durationSeconds: z.number().min(1).max(86400).nullable().optional(),
-  fitMode: z.enum(FIT_MODES).nullable().optional(),
-  enabled: z.boolean().default(true),
+export const bulkMoveMediaSchema = z.object({
+  mediaIds: z.array(z.string().min(1)).min(1).max(500),
+  /** null moves to the root folder. */
+  folderId: z.string().nullable(),
 });
+
+export const bulkDeleteMediaSchema = z.object({
+  mediaIds: z.array(z.string().min(1)).min(1).max(500),
+});
+
+// ---------- Playlists ----------
+export const playlistItemInputSchema = z
+  .object({
+    type: z.enum(['media', 'folder']).default('media'),
+    mediaAssetId: z.string().min(1).nullable().optional(),
+    folderId: z.string().min(1).nullable().optional(),
+    durationSeconds: z.number().min(1).max(86400).nullable().optional(),
+    fitMode: z.enum(FIT_MODES).nullable().optional(),
+    enabled: z.boolean().default(true),
+    includeSubfolders: z.boolean().default(false),
+    filterMediaType: z.enum(['image', 'video']).nullable().optional(),
+    filterOrientation: z.enum(['landscape', 'portrait', 'square']).nullable().optional(),
+  })
+  .refine((item) => (item.type === 'media' ? Boolean(item.mediaAssetId) : true), {
+    message: 'media items require mediaAssetId',
+  })
+  .refine((item) => (item.type === 'folder' ? Boolean(item.folderId) : true), {
+    message: 'folder items require folderId',
+  });
 
 export const createPlaylistSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   loop: z.boolean().default(true),
   defaultImageDurationSeconds: z.number().int().min(1).max(86400).default(10),
+  playbackOrderMode: z.enum(PLAYBACK_ORDER_MODES).default('manual_order'),
   items: z.array(playlistItemInputSchema).optional(),
 });
 
@@ -125,10 +188,105 @@ export const updatePlaylistSchema = z.object({
   description: z.string().max(500).nullable().optional(),
   loop: z.boolean().optional(),
   defaultImageDurationSeconds: z.number().int().min(1).max(86400).optional(),
+  playbackOrderMode: z.enum(PLAYBACK_ORDER_MODES).optional(),
 });
 
 export const replacePlaylistItemsSchema = z.object({
   items: z.array(playlistItemInputSchema),
+});
+
+export const clonePlaylistSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+});
+
+// ---------- Playlist priority rules ----------
+export const priorityRuleAssignmentInputSchema = z
+  .object({
+    mediaAssetId: z.string().min(1).nullable().optional(),
+    folderId: z.string().min(1).nullable().optional(),
+    includeSubfolders: z.boolean().default(false),
+  })
+  .refine((a) => Boolean(a.mediaAssetId) !== Boolean(a.folderId), {
+    message: 'Provide exactly one of mediaAssetId or folderId',
+  });
+
+export const createPriorityRuleSchema = z.object({
+  name: z.string().min(1).max(100),
+  intervalCount: z.number().int().min(1).max(1000),
+  selectionMode: z.enum(PRIORITY_SELECTION_MODES).default('rotate'),
+  enabled: z.boolean().default(true),
+  position: z.number().int().min(0).optional(),
+  assignments: z.array(priorityRuleAssignmentInputSchema).max(200).optional(),
+});
+
+export const updatePriorityRuleSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  intervalCount: z.number().int().min(1).max(1000).optional(),
+  selectionMode: z.enum(PRIORITY_SELECTION_MODES).optional(),
+  enabled: z.boolean().optional(),
+  position: z.number().int().min(0).optional(),
+});
+
+export const replacePriorityRuleAssignmentsSchema = z.object({
+  assignments: z.array(priorityRuleAssignmentInputSchema).max(200),
+});
+
+// ---------- Superadmin ----------
+export const superadminCreateOrgSchema = z.object({
+  name: z.string().min(1).max(100),
+  slug: z
+    .string()
+    .min(1)
+    .max(60)
+    .regex(/^[a-z0-9][a-z0-9-]*$/)
+    .optional(),
+  status: z.enum(ORG_STATUSES).default('active'),
+  planName: z.string().max(100).nullable().optional(),
+  maxDevices: z.number().int().min(0).nullable().optional(),
+  maxStorageGb: z.number().int().min(0).nullable().optional(),
+});
+
+export const superadminUpdateOrgSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  status: z.enum(ORG_STATUSES).optional(),
+  planName: z.string().max(100).nullable().optional(),
+  maxDevices: z.number().int().min(0).nullable().optional(),
+  maxStorageGb: z.number().int().min(0).nullable().optional(),
+});
+
+export const superadminCreateUserSchema = z.object({
+  name: z.string().min(1).max(100),
+  email: z.string().email().max(255),
+  password: passwordSchema,
+  mustChangePassword: z.boolean().default(true),
+  memberships: z
+    .array(
+      z.object({
+        organizationId: z.string().min(1),
+        role: z.enum(ORG_ROLES),
+      }),
+    )
+    .max(50)
+    .default([]),
+});
+
+export const superadminUpdateUserSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  disabled: z.boolean().optional(),
+});
+
+export const superadminResetPasswordSchema = z.object({
+  password: passwordSchema,
+  mustChangePassword: z.boolean().default(true),
+});
+
+export const superadminAddMemberSchema = z.object({
+  userId: z.string().min(1),
+  role: z.enum(ORG_ROLES),
+});
+
+export const superadminUpdateMemberSchema = z.object({
+  role: z.enum(ORG_ROLES),
 });
 
 // ---------- Schedules ----------
@@ -237,6 +395,11 @@ export const playbackEventsSchema = z.object({
         eventType: z.enum(PLAYBACK_EVENT_TYPES),
         mediaAssetId: z.string().nullable().optional(),
         playlistId: z.string().nullable().optional(),
+        /** Client-generated id; resubmitted batches are deduplicated on it. */
+        clientEventId: z.string().max(64).nullable().optional(),
+        priorityRuleId: z.string().nullable().optional(),
+        playedAs: z.enum(PLAYED_AS_VALUES).nullable().optional(),
+        durationSeconds: z.number().min(0).nullable().optional(),
         detail: z.record(z.unknown()).optional(),
         occurredAt: z.string().datetime({ offset: true }),
       }),
@@ -249,7 +412,6 @@ export const commandResultSchema = z.object({
   result: z.record(z.unknown()).optional(),
 });
 
-export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type CreateDeviceInput = z.infer<typeof createDeviceSchema>;
 export type UpdateDeviceInput = z.infer<typeof updateDeviceSchema>;

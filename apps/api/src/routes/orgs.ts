@@ -5,8 +5,9 @@ import {
   updateMemberSchema,
   updateOrgSchema,
 } from '@signage/shared';
-import { authenticateUser, requireOrgRole } from '../plugins/auth';
+import { authenticateUser, requireOrgRole, requireSuperadmin } from '../plugins/auth';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
+import { writeAudit } from '../lib/audit';
 import { serializeMember, serializeOrg } from '../lib/serializers';
 
 export async function orgRoutes(app: FastifyInstance): Promise<void> {
@@ -21,7 +22,10 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
     return memberships.map((m) => serializeOrg(m.organization, m.role));
   });
 
+  // Self-service organization signup was removed in v2: only superadmins
+  // create organizations (see also the /superadmin routes).
   app.post('/orgs', async (req, reply) => {
+    await requireSuperadmin(prisma, req);
     const body = createOrgSchema.parse(req.body);
     const slug = `${body.name
       .toLowerCase()
@@ -34,6 +38,14 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
         slug,
         members: { create: { userId: req.user!.id, role: 'owner' } },
       },
+    });
+    await writeAudit(prisma, req, {
+      action: 'organization.create',
+      targetType: 'organization',
+      targetId: org.id,
+      organizationId: org.id,
+      actorGlobalRole: 'superadmin',
+      metadata: { name: org.name },
     });
     return reply.status(201).send(serializeOrg(org, 'owner'));
   });
@@ -74,7 +86,8 @@ export async function orgRoutes(app: FastifyInstance): Promise<void> {
       throw badRequest('Cannot grant the owner role; transfer ownership instead');
 
     const user = await prisma.user.findUnique({ where: { email: body.email } });
-    if (!user) throw notFound('No user exists with this email — they must register first');
+    if (!user)
+      throw notFound('No user exists with this email — ask a superadmin to create the account');
 
     const existing = await prisma.organizationMember.findUnique({
       where: { organizationId_userId: { organizationId: req.params.orgId, userId: user.id } },

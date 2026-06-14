@@ -1,8 +1,10 @@
-import type {
-  AgentToPlayerMessage,
-  PlayerState,
-  PlayerStateItem,
-  PlayerToAgentMessage,
+import {
+  PlaybackQueueEngine,
+  type AgentToPlayerMessage,
+  type PlayerState,
+  type PlayerStateItem,
+  type PlayerToAgentMessage,
+  type QueueResult,
 } from '@signage/shared';
 import './style.css';
 
@@ -42,6 +44,7 @@ function sendEvent(
   item: PlayerStateItem,
   playlistId: string | null,
   detail?: Record<string, unknown>,
+  play?: { playedAs: 'normal' | 'priority'; priorityRuleId?: string } | null,
 ): void {
   send({
     type: 'playback_event',
@@ -49,6 +52,8 @@ function sendEvent(
     itemId: item.id,
     mediaId: item.mediaId,
     playlistId,
+    playedAs: play?.playedAs ?? 'normal',
+    priorityRuleId: play?.priorityRuleId ?? null,
     detail,
     occurredAt: new Date().toISOString(),
   });
@@ -67,6 +72,57 @@ let index = 0;
 let activeLayer = 0;
 let advanceTimer: number | null = null;
 let playToken = 0;
+
+// Random order modes: the agent ships the resolved pool + priority rules and
+// the player shuffles locally so reshuffles never need a state update.
+const LAST_MEDIA_KEY = 'signage.lastPlayedMediaId';
+let engine: PlaybackQueueEngine | null = null;
+let engineItems = new Map<string, PlayerStateItem>();
+let currentPlay: QueueResult | null = null;
+
+function isRandomMode(s: PlayerState): boolean {
+  return s.playbackOrderMode === 'random' || s.playbackOrderMode === 'random_with_priority_rules';
+}
+
+function rebuildEngine(s: PlayerState): void {
+  engineItems = new Map(s.items.map((item) => [item.id, item]));
+  const rules = (s.playbackOrderMode === 'random_with_priority_rules' ? s.priorityRules : []).map(
+    (rule) => {
+      for (const item of rule.items) engineItems.set(item.id, item);
+      return {
+        id: rule.id,
+        name: rule.name,
+        intervalCount: rule.intervalCount,
+        selectionMode: rule.selectionMode,
+        position: rule.position,
+        createdAt: rule.createdAt,
+        entries: rule.items.map((item) => ({ id: item.id, mediaId: item.mediaId })),
+      };
+    },
+  );
+  // Remembering the last played media survives player reloads and reboots,
+  // avoiding an obvious immediate repeat when a new cycle starts.
+  let lastPlayed: string | null = null;
+  try {
+    lastPlayed = localStorage.getItem(LAST_MEDIA_KEY);
+  } catch {
+    // storage unavailable (e.g. incognito kiosk) — fine, start fresh
+  }
+  engine = new PlaybackQueueEngine({
+    entries: s.items.map((item) => ({ id: item.id, mediaId: item.mediaId })),
+    priorityRules: rules,
+    lastPlayedMediaId: lastPlayed,
+  });
+  currentPlay = null;
+}
+
+function rememberLastPlayed(mediaId: string): void {
+  try {
+    localStorage.setItem(LAST_MEDIA_KEY, mediaId);
+  } catch {
+    // ignored
+  }
+}
 
 function clearAdvanceTimer(): void {
   if (advanceTimer !== null) {
@@ -138,8 +194,30 @@ function scheduleAdvance(seconds: number): void {
   advanceTimer = window.setTimeout(() => advance('end'), Math.max(0.5, seconds) * 1000);
 }
 
+/** The item that should be on screen right now, for any order mode. */
+function activeItem(): PlayerStateItem | null {
+  if (!state) return null;
+  if (isRandomMode(state)) {
+    return currentPlay ? (engineItems.get(currentPlay.entry.id) ?? null) : null;
+  }
+  return state.items[index] ?? null;
+}
+
 function advance(reason: 'end' | 'error'): void {
-  if (!state || state.items.length === 0) return;
+  if (!state) return;
+
+  if (isRandomMode(state)) {
+    const item = activeItem();
+    if (item && reason === 'end') {
+      sendEvent('end', item, state.playlistId, undefined, currentPlay);
+    }
+    currentPlay = engine?.next() ?? null;
+    if (!currentPlay) return;
+    void showCurrent();
+    return;
+  }
+
+  if (state.items.length === 0) return;
   const item = state.items[index];
   if (item && reason === 'end') sendEvent('end', item, state.playlistId);
 
@@ -160,22 +238,28 @@ function advance(reason: 'end' | 'error'): void {
 }
 
 async function showCurrent(): Promise<void> {
-  if (!state || state.items.length === 0) return;
+  if (!state) return;
+  const item = activeItem();
+  if (!item) return;
   const token = ++playToken;
   clearAdvanceTimer();
-  const item = state.items[index];
   currentItemId = item.id;
   const playlistId = state.playlistId;
-  const single = state.items.length === 1 && state.loop;
+  const play = isRandomMode(state) ? currentPlay : null;
+  const single = !isRandomMode(state) && state.items.length === 1 && state.loop;
 
   let element: HTMLImageElement | HTMLVideoElement;
   try {
     element = await buildMediaElement(item);
   } catch (err) {
     if (token !== playToken) return;
-    sendEvent('error', item, playlistId, {
-      error: err instanceof Error ? err.message : String(err),
-    });
+    sendEvent(
+      'error',
+      item,
+      playlistId,
+      { error: err instanceof Error ? err.message : String(err) },
+      play,
+    );
     advanceTimer = window.setTimeout(() => advance('error'), ERROR_RETRY_DELAY_MS);
     return;
   }
@@ -184,7 +268,8 @@ async function showCurrent(): Promise<void> {
   activeLayer = 1 - activeLayer;
   swapToLayer(activeLayer, element);
   showFallback(false);
-  sendEvent('start', item, playlistId);
+  sendEvent('start', item, playlistId, undefined, play);
+  if (state && isRandomMode(state)) rememberLastPlayed(item.mediaId);
 
   if (element instanceof HTMLVideoElement) {
     if (single) {
@@ -197,7 +282,7 @@ async function showCurrent(): Promise<void> {
     }
     element.onerror = () => {
       if (token !== playToken) return;
-      sendEvent('error', item, playlistId, { error: 'video playback error' });
+      sendEvent('error', item, playlistId, { error: 'video playback error' }, play);
       advanceTimer = window.setTimeout(() => advance('error'), ERROR_RETRY_DELAY_MS);
     };
     element.play().catch(() => {
@@ -218,7 +303,20 @@ function contentFingerprint(s: PlayerState): string {
     s.items.map((i) => [i.id, i.url, i.durationSeconds, i.fitMode]),
     s.loop,
     s.source,
+    s.playbackOrderMode,
+    (s.priorityRules ?? []).map((r) => [
+      r.id,
+      r.intervalCount,
+      r.selectionMode,
+      r.position,
+      r.items.map((i) => i.id),
+    ]),
   ]);
+}
+
+function hasPlayableContent(s: PlayerState): boolean {
+  if (s.items.length > 0) return true;
+  return isRandomMode(s) && (s.priorityRules ?? []).some((r) => r.items.length > 0);
 }
 
 function applyState(next: PlayerState): void {
@@ -228,15 +326,17 @@ function applyState(next: PlayerState): void {
   if (next.orientation !== 'landscape') stage.classList.add(next.orientation);
 
   updateFallbackContent(next);
-  offlineDot.classList.toggle('hidden', next.online || next.items.length === 0);
+  offlineDot.classList.toggle('hidden', next.online || !hasPlayableContent(next));
 
   const fingerprint = contentFingerprint(next);
   if (fingerprint === playFingerprint) return;
   playFingerprint = fingerprint;
 
-  if (next.items.length === 0) {
+  if (!hasPlayableContent(next)) {
     playToken++;
     currentItemId = null;
+    currentPlay = null;
+    engine = null;
     clearAdvanceTimer();
     layerEls[0].classList.remove('visible');
     layerEls[1].classList.remove('visible');
@@ -245,6 +345,16 @@ function applyState(next: PlayerState): void {
     showFallback(true);
     return;
   }
+
+  if (isRandomMode(next)) {
+    // Content changed: build a fresh shuffle over the new pool and start it.
+    rebuildEngine(next);
+    currentPlay = engine?.next() ?? null;
+    void showCurrent();
+    return;
+  }
+  engine = null;
+  currentPlay = null;
 
   // Keep playing the same item if it survived the update; otherwise restart.
   const keepIndex = currentItemId ? next.items.findIndex((i) => i.id === currentItemId) : -1;

@@ -16,11 +16,15 @@ There are two authentication schemes:
 
 ## Auth
 
-| Method | Path             | Notes                                                                                                           |
-| ------ | ---------------- | --------------------------------------------------------------------------------------------------------------- |
-| POST   | `/auth/register` | `{ email, password, name, organizationName }`. Creates user + org (caller becomes `owner`). Rate-limited 5/min. |
-| POST   | `/auth/login`    | `{ email, password }` → `{ token, user }`. Rate-limited 10/min.                                                 |
-| GET    | `/auth/me`       | Current user profile.                                                                                           |
+| Method | Path                    | Notes                                                                                                                                              |
+| ------ | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/register`        | **Disabled.** Public registration was removed in v2; always returns `410 Gone`. Accounts are created by a superadmin or an org admin.              |
+| POST   | `/auth/login`           | `{ email, password }` → `{ token, user, organizations }`. Rejects disabled accounts. Rate-limited 10/min. Superadmin logins are audit-logged.      |
+| GET    | `/auth/me`              | Current user profile + organizations. Rejects disabled accounts.                                                                                   |
+| POST   | `/auth/change-password` | Authenticated. `{ currentPassword, newPassword }`; clears `mustChangePassword`. New password must differ from the current one. Rate-limited 5/min. |
+
+Users created with a temporary password have `mustChangePassword=true`; the
+dashboard forces a password change before any other action.
 
 ## Organizations & members
 
@@ -72,25 +76,69 @@ There are two authentication schemes:
 
 ## Media
 
-| Method | Path                                                       | Notes                                                                                                                                    |
-| ------ | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| POST   | `/orgs/:orgId/media`                                       | `multipart/form-data` upload. Validated by magic bytes; queued for FFmpeg processing. Returns the asset with `processingStatus=pending`. |
-| GET    | `/orgs/:orgId/media?status=&type=&search=&page=&pageSize=` | Paged library with thumbnails (presigned URLs).                                                                                          |
-| GET    | `/orgs/:orgId/media/:mediaId`                              | Asset detail incl. variants and processing error, if any.                                                                                |
-| PATCH  | `/orgs/:orgId/media/:mediaId`                              | Rename / edit metadata.                                                                                                                  |
-| DELETE | `/orgs/:orgId/media/:mediaId`                              | Soft delete. Blocked while referenced by playlists or emergency overrides.                                                               |
-| POST   | `/orgs/:orgId/media/:mediaId/reprocess`                    | Re-enqueue processing (e.g. after a `failed` status).                                                                                    |
+| Method | Path                                         | Notes                                                                                                                                                            |
+| ------ | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| POST   | `/orgs/:orgId/media?folderId=`               | `multipart/form-data` upload. Optional `folderId` files it into a folder. Validated by magic bytes; queued for FFmpeg processing (`processingStatus=pending`).   |
+| GET    | `/orgs/:orgId/media`                         | Paged library with thumbnails, play counts, and folder paths. Query: `status, type, orientation, search, folderId, usedInPlaylist, sort, order, page, pageSize`. |
+| GET    | `/orgs/:orgId/media/:mediaId`                | Asset detail incl. variants, processing error, play count, last played.                                                                                          |
+| PATCH  | `/orgs/:orgId/media/:mediaId`                | Rename and/or move to another folder (`{ name?, folderId? }`; `folderId: null` = root).                                                                          |
+| POST   | `/orgs/:orgId/media/bulk-move`               | `{ mediaIds, folderId }` — move many at once → `{ moved }`.                                                                                                      |
+| GET    | `/orgs/:orgId/media/:mediaId/usage`          | Safe-delete summary: playlists/folder-entries/priority-rules referencing it, affected schedules, play count.                                                     |
+| GET    | `/orgs/:orgId/media/:mediaId/playback-stats` | Totals + first/last played + top devices/playlists.                                                                                                              |
+| DELETE | `/orgs/:orgId/media/:mediaId`                | Soft delete. Drops direct playlist/priority references; storage objects kept for later cleanup. Call `usage` first to warn.                                      |
+| POST   | `/orgs/:orgId/media/bulk-delete`             | `{ mediaIds }` — soft-delete many → `{ deleted }`.                                                                                                               |
+| POST   | `/orgs/:orgId/media/:mediaId/reprocess`      | Re-enqueue processing (e.g. after a `failed` status).                                                                                                            |
+
+`folderId` filter accepts a folder id (that folder only), `root` (unfiled media),
+or absent (all media). `sort` is one of `name, createdAt, updatedAt, type,
+orientation, duration, playCount`.
+
+## Media folders
+
+Folders are organization-scoped, nestable, and a purely logical grouping — moving
+or renaming a folder never moves storage objects, and playlists reference folders
+by id so they survive renames/moves.
+
+| Method | Path                                         | Notes                                                                                                                         |
+| ------ | -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/orgs/:orgId/media/folders`                 | Flat list with computed `path`, `mediaCount`, `subfolderCount`. The dashboard builds the tree client-side.                    |
+| POST   | `/orgs/:orgId/media/folders`                 | `{ name, parentFolderId? }` — editor. Names are unique (case-insensitive) within a parent.                                    |
+| PATCH  | `/orgs/:orgId/media/folders/:folderId`       | `{ name?, parentFolderId? }` — rename and/or move. Moving into itself or a descendant is rejected.                            |
+| GET    | `/orgs/:orgId/media/folders/:folderId/usage` | Safe-delete summary: media count, subfolder count, playlist references, affected schedules.                                   |
+| DELETE | `/orgs/:orgId/media/folders/:folderId`       | `{ strategy: move_to_root \| move_to_folder \| delete_media, targetFolderId? }` — soft delete; handles contents per strategy. |
 
 ## Playlists
 
-| Method | Path                                       | Notes                                                                                                                        |
-| ------ | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/orgs/:orgId/playlists`                   | With item counts.                                                                                                            |
-| POST   | `/orgs/:orgId/playlists`                   | `{ name, loop?, defaultImageDurationSeconds? }`.                                                                             |
-| GET    | `/orgs/:orgId/playlists/:playlistId`       | Playlist + ordered items + media summaries.                                                                                  |
-| PATCH  | `/orgs/:orgId/playlists/:playlistId`       | Update name/loop/default duration.                                                                                           |
-| PUT    | `/orgs/:orgId/playlists/:playlistId/items` | Replace the full ordered item list: `{ items: [{ mediaId, durationSeconds?, fitMode?, enabled? }] }`. Media must be `ready`. |
-| DELETE | `/orgs/:orgId/playlists/:playlistId`       | Blocked while used as a device default, in schedules, or in an active emergency.                                             |
+| Method | Path                                                  | Notes                                                                                                                                                                                            |
+| ------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/orgs/:orgId/playlists`                              | With item counts.                                                                                                                                                                                |
+| POST   | `/orgs/:orgId/playlists`                              | `{ name, description?, loop?, defaultImageDurationSeconds?, playbackOrderMode?, items? }`.                                                                                                       |
+| GET    | `/orgs/:orgId/playlists/:playlistId`                  | Playlist + ordered items (media or folder entries) + media summaries with thumbnails.                                                                                                            |
+| PATCH  | `/orgs/:orgId/playlists/:playlistId`                  | Update name/description/loop/default duration/`playbackOrderMode`.                                                                                                                               |
+| PUT    | `/orgs/:orgId/playlists/:playlistId/items`            | Replace the full ordered list. Each item is `{ type: media\|folder, mediaAssetId?, folderId?, durationSeconds?, fitMode?, enabled?, includeSubfolders?, filterMediaType?, filterOrientation? }`. |
+| POST   | `/orgs/:orgId/playlists/:playlistId/clone`            | `{ name? }` — duplicate items, folder entries, and priority rules (not schedules/history). Defaults to "Copy of …". → `201`.                                                                     |
+| GET    | `/orgs/:orgId/playlists/:playlistId/resolved-preview` | What devices will receive after resolution. Query `seed`, `sampleSize`. Returns resolved items (with `source`), duration, a sample sequence for random modes, and warnings.                      |
+| DELETE | `/orgs/:orgId/playlists/:playlistId`                  | Blocked while used as a device default or in schedules. Soft delete.                                                                                                                             |
+
+`playbackOrderMode` is one of `manual_order` (default), `alphabetical`, `random`,
+`random_with_priority_rules`. Folder entries resolve dynamically: media added to /
+removed from a folder is reflected automatically; folder rename/move never breaks
+the playlist.
+
+## Playlist priority rules
+
+Priority rules apply only when `playbackOrderMode = random_with_priority_rules`:
+after every `intervalCount` normal items, one item from the rule's assignments is
+inserted. Multiple rules per playlist are allowed; simultaneous triggers are
+broken deterministically (lowest interval, then position, then creation time).
+
+| Method | Path                                                                    | Notes                                                                                                                                                                        |
+| ------ | ----------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/orgs/:orgId/playlists/:playlistId/priority-rules`                     | Rules with resolved assignments and folder paths.                                                                                                                            |
+| POST   | `/orgs/:orgId/playlists/:playlistId/priority-rules`                     | `{ name, intervalCount, selectionMode: rotate\|random, enabled?, position?, assignments? }`. → `201`.                                                                        |
+| PATCH  | `/orgs/:orgId/playlists/:playlistId/priority-rules/:ruleId`             | Update name/interval/selection/enabled/position.                                                                                                                             |
+| DELETE | `/orgs/:orgId/playlists/:playlistId/priority-rules/:ruleId`             | Soft delete.                                                                                                                                                                 |
+| PUT    | `/orgs/:orgId/playlists/:playlistId/priority-rules/:ruleId/assignments` | Replace assignments: `{ assignments: [{ mediaAssetId? \| folderId?, includeSubfolders? }] }` (exactly one of media/folder each). Used to assign many selected files at once. |
 
 ## Schedules
 
@@ -110,6 +158,26 @@ There are two authentication schemes:
 | GET    | `/orgs/:orgId/emergency`                  | Recent overrides, active first.                                                                                                                                               |
 | POST   | `/orgs/:orgId/emergency`                  | Admin. Exactly one of `playlistId` / `mediaAssetId` (media must be `ready`), plus `appliesToAll` or explicit `deviceIds`/`groupIds`. Takes over targeted screens immediately. |
 | POST   | `/orgs/:orgId/emergency/:overrideId/stop` | Ends the override; screens return to their normal schedule.                                                                                                                   |
+
+## Superadmin
+
+Platform-level administration. Every route requires an authenticated, active user
+whose `globalRole` is `superadmin`; non-superadmins get `403`. All mutating
+actions are written to the audit log.
+
+| Method | Path                                                     | Notes                                                                                                      |
+| ------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| GET    | `/superadmin/organizations`                              | All orgs with `deviceCount`, `userCount`, `mediaCount`, `storageUsedBytes`.                                |
+| POST   | `/superadmin/organizations`                              | `{ name, slug?, status?, planName?, maxDevices?, maxStorageGb? }` — slug auto-generated if omitted. `201`. |
+| PATCH  | `/superadmin/organizations/:orgId`                       | Update name/status/plan/limits. Status changes log enable/disable.                                         |
+| GET    | `/superadmin/users`                                      | All users with global role, disabled state, and memberships.                                               |
+| POST   | `/superadmin/users`                                      | `{ name, email, password, mustChangePassword?, memberships: [{ organizationId, role }] }`. `201`.          |
+| PATCH  | `/superadmin/users/:userId`                              | `{ name?, disabled? }`. Superadmin accounts cannot be disabled from the dashboard.                         |
+| POST   | `/superadmin/users/:userId/reset-password`               | `{ password, mustChangePassword? }`.                                                                       |
+| POST   | `/superadmin/organizations/:orgId/members`               | `{ userId, role }` — add an existing user to an org. `201`.                                                |
+| PATCH  | `/superadmin/organizations/:orgId/members/:membershipId` | `{ role }`.                                                                                                |
+| DELETE | `/superadmin/organizations/:orgId/members/:membershipId` | Remove a membership. `204`.                                                                                |
+| GET    | `/superadmin/audit-logs?page=&pageSize=`                 | Paged audit log (actor, action, target, metadata, IP, timestamp).                                          |
 
 ## Device API (device-token auth)
 

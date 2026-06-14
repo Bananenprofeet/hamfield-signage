@@ -21,6 +21,29 @@ export type ProcessingStatus = (typeof PROCESSING_STATUSES)[number];
 export const ORG_ROLES = ['owner', 'admin', 'editor', 'viewer'] as const;
 export type OrgRole = (typeof ORG_ROLES)[number];
 
+export const GLOBAL_ROLES = ['user', 'superadmin'] as const;
+export type GlobalRole = (typeof GLOBAL_ROLES)[number];
+
+export const ORG_STATUSES = ['active', 'disabled'] as const;
+export type OrgStatus = (typeof ORG_STATUSES)[number];
+
+export const PLAYBACK_ORDER_MODES = [
+  'manual_order',
+  'alphabetical',
+  'random',
+  'random_with_priority_rules',
+] as const;
+export type PlaybackOrderMode = (typeof PLAYBACK_ORDER_MODES)[number];
+
+export const PLAYLIST_ITEM_TYPES = ['media', 'folder'] as const;
+export type PlaylistItemType = (typeof PLAYLIST_ITEM_TYPES)[number];
+
+export const PRIORITY_SELECTION_MODES = ['rotate', 'random'] as const;
+export type PrioritySelectionMode = (typeof PRIORITY_SELECTION_MODES)[number];
+
+export const PLAYED_AS_VALUES = ['normal', 'priority'] as const;
+export type PlayedAs = (typeof PLAYED_AS_VALUES)[number];
+
 export const COMMAND_TYPES = [
   'restart_player',
   'reboot_device',

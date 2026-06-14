@@ -5,10 +5,13 @@ import type {
   DeviceLog,
   EmergencyOverride,
   MediaAsset,
+  MediaFolder,
   Organization,
   OrganizationMember,
   Playlist,
   PlaylistItem,
+  PlaylistPriorityRule,
+  PlaylistPriorityRuleAssignment,
   Schedule,
   User,
 } from '@signage/database';
@@ -19,10 +22,12 @@ import type {
   DeviceLogDto,
   EmergencyOverrideDto,
   MediaAssetDto,
+  MediaFolderDto,
   OrganizationDto,
   OrganizationMemberDto,
   PlaylistDto,
   PlaylistItemDto,
+  PriorityRuleDto,
   ScheduleDto,
   UserDto,
 } from '@signage/shared';
@@ -38,6 +43,9 @@ export function serializeUser(user: User): UserDto {
     id: user.id,
     email: user.email,
     name: user.name,
+    globalRole: user.globalRole as UserDto['globalRole'],
+    mustChangePassword: user.mustChangePassword,
+    disabledAt: iso(user.disabledAt),
     createdAt: user.createdAt.toISOString(),
   };
 }
@@ -47,8 +55,74 @@ export function serializeOrg(org: Organization, role?: string): OrganizationDto 
     id: org.id,
     name: org.name,
     slug: org.slug,
+    status: org.status as OrganizationDto['status'],
+    planName: org.planName,
+    maxDevices: org.maxDevices,
+    maxStorageGb: org.maxStorageGb,
     role: role as OrganizationDto['role'],
     createdAt: org.createdAt.toISOString(),
+  };
+}
+
+export function serializeFolder(
+  folder: MediaFolder,
+  extras: { path: string; mediaCount?: number; subfolderCount?: number },
+): MediaFolderDto {
+  return {
+    id: folder.id,
+    organizationId: folder.organizationId,
+    parentFolderId: folder.parentFolderId,
+    name: folder.name,
+    path: extras.path,
+    mediaCount: extras.mediaCount,
+    subfolderCount: extras.subfolderCount,
+    createdAt: folder.createdAt.toISOString(),
+    updatedAt: folder.updatedAt.toISOString(),
+  };
+}
+
+export function serializePriorityRule(
+  rule: PlaylistPriorityRule & {
+    assignments: Array<
+      PlaylistPriorityRuleAssignment & {
+        mediaAsset?: MediaAsset | null;
+        folder?: MediaFolder | null;
+      }
+    >;
+  },
+  folderPaths?: Map<string, string>,
+): PriorityRuleDto {
+  return {
+    id: rule.id,
+    organizationId: rule.organizationId,
+    playlistId: rule.playlistId,
+    name: rule.name,
+    intervalCount: rule.intervalCount,
+    selectionMode: rule.selectionMode as PriorityRuleDto['selectionMode'],
+    enabled: rule.enabled,
+    position: rule.position,
+    assignments: rule.assignments.map((a) => ({
+      id: a.id,
+      mediaAssetId: a.mediaAssetId,
+      folderId: a.folderId,
+      includeSubfolders: a.includeSubfolders,
+      media: a.mediaAssetId
+        ? a.mediaAsset && !a.mediaAsset.deletedAt
+          ? serializeMedia(a.mediaAsset)
+          : null
+        : undefined,
+      folder: a.folderId
+        ? a.folder && !a.folder.deletedAt
+          ? {
+              id: a.folder.id,
+              name: a.folder.name,
+              path: folderPaths?.get(a.folder.id) ?? a.folder.name,
+            }
+          : null
+        : undefined,
+    })),
+    createdAt: rule.createdAt.toISOString(),
+    updatedAt: rule.updatedAt.toISOString(),
   };
 }
 
@@ -139,10 +213,21 @@ export function serializeGroup(
 export function serializeMedia(
   media: MediaAsset,
   urls?: { thumbnailUrl?: string | null; previewUrl?: string | null },
+  extras?: {
+    folderPath?: string | null;
+    playCount?: number;
+    lastPlayedAt?: string | null;
+    usedInPlaylistCount?: number;
+  },
 ): MediaAssetDto {
   return {
     id: media.id,
     organizationId: media.organizationId,
+    folderId: media.folderId,
+    folderPath: extras?.folderPath,
+    playCount: extras?.playCount,
+    lastPlayedAt: extras?.lastPlayedAt,
+    usedInPlaylistCount: extras?.usedInPlaylistCount,
     name: media.name,
     originalFilename: media.originalFilename,
     mediaType: media.mediaType as MediaAssetDto['mediaType'],
@@ -165,28 +250,46 @@ export function serializeMedia(
 }
 
 export function serializePlaylistItem(
-  item: PlaylistItem & { mediaAsset?: MediaAsset },
+  item: PlaylistItem & { mediaAsset?: MediaAsset | null; folder?: MediaFolder | null },
   mediaUrls?: { thumbnailUrl?: string | null },
+  folderExtras?: { path?: string },
 ): PlaylistItemDto {
   return {
     id: item.id,
     playlistId: item.playlistId,
+    type: item.type as PlaylistItemDto['type'],
     mediaAssetId: item.mediaAssetId,
+    folderId: item.folderId,
     position: item.position,
     durationSeconds: item.durationSeconds,
     fitMode: item.fitMode as PlaylistItemDto['fitMode'],
     enabled: item.enabled,
+    includeSubfolders: item.includeSubfolders,
+    filterMediaType: item.filterMediaType as PlaylistItemDto['filterMediaType'],
+    filterOrientation: item.filterOrientation as PlaylistItemDto['filterOrientation'],
     media: item.mediaAsset ? serializeMedia(item.mediaAsset, mediaUrls) : undefined,
+    folder: item.folder
+      ? {
+          id: item.folder.id,
+          name: item.folder.name,
+          path: folderExtras?.path ?? item.folder.name,
+        }
+      : item.folderId
+        ? null
+        : undefined,
   };
 }
 
 export function playlistTotalDuration(
-  items: (PlaylistItem & { mediaAsset?: MediaAsset })[],
+  items: (PlaylistItem & { mediaAsset?: MediaAsset | null })[],
   defaultImageDurationSeconds: number,
 ): number | null {
   let total = 0;
   for (const item of items) {
     if (!item.enabled) continue;
+    // Dynamic folder entries have an unknown expanded duration here; the
+    // resolved preview endpoint computes the real total.
+    if (item.type === 'folder') return null;
     if (item.durationSeconds != null) {
       total += item.durationSeconds;
     } else if (item.mediaAsset?.mediaType === 'video' && item.mediaAsset.durationSeconds != null) {
@@ -202,10 +305,10 @@ export function playlistTotalDuration(
 
 export function serializePlaylist(
   playlist: Playlist & {
-    items?: (PlaylistItem & { mediaAsset?: MediaAsset })[];
+    items?: (PlaylistItem & { mediaAsset?: MediaAsset | null; folder?: MediaFolder | null })[];
     _count?: { items: number };
   },
-  options?: { includeItems?: boolean },
+  options?: { includeItems?: boolean; folderPaths?: Map<string, string> },
 ): PlaylistDto {
   const items = playlist.items
     ? [...playlist.items].sort((a, b) => a.position - b.position)
@@ -217,11 +320,21 @@ export function serializePlaylist(
     description: playlist.description,
     loop: playlist.loop,
     defaultImageDurationSeconds: playlist.defaultImageDurationSeconds,
+    playbackOrderMode: playlist.playbackOrderMode as PlaylistDto['playbackOrderMode'],
+    clonedFromPlaylistId: playlist.clonedFromPlaylistId,
+    clonedAt: iso(playlist.clonedAt),
     itemCount: playlist._count?.items ?? items?.length ?? 0,
     totalDurationSeconds: items
       ? playlistTotalDuration(items, playlist.defaultImageDurationSeconds)
       : null,
-    items: options?.includeItems && items ? items.map((i) => serializePlaylistItem(i)) : undefined,
+    items:
+      options?.includeItems && items
+        ? items.map((i) =>
+            serializePlaylistItem(i, undefined, {
+              path: i.folderId ? options?.folderPaths?.get(i.folderId) : undefined,
+            }),
+          )
+        : undefined,
     createdAt: playlist.createdAt.toISOString(),
     updatedAt: playlist.updatedAt.toISOString(),
   };

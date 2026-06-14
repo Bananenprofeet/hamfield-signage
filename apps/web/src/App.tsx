@@ -1,9 +1,10 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import { Layout } from './components/Layout';
 import { useAuth } from './lib/auth';
-import { Spinner } from './components/ui';
+import { EmptyState, Spinner } from './components/ui';
 import { LoginPage } from './pages/Login';
-import { RegisterPage } from './pages/Register';
+import { ChangePasswordPage } from './pages/ChangePassword';
 import { DevicesPage } from './pages/Devices';
 import { DeviceDetailPage } from './pages/DeviceDetail';
 import { MediaPage } from './pages/Media';
@@ -15,6 +16,32 @@ import { MonitoringPage } from './pages/Monitoring';
 import { EmergencyPage } from './pages/Emergency';
 import { SettingsPage } from './pages/Settings';
 import { OrgSettingsPage } from './pages/OrgSettings';
+import { SuperadminOrgsPage } from './pages/SuperadminOrgs';
+import { SuperadminUsersPage } from './pages/SuperadminUsers';
+
+/** Org-scoped pages need a selected organization (superadmins may have none). */
+function OrgRoute({ children }: { children: ReactNode }) {
+  const { orgId, user } = useAuth();
+  if (!orgId) {
+    return (
+      <EmptyState
+        title="No organization selected"
+        hint={
+          user?.globalRole === 'superadmin'
+            ? 'Create an organization in the Superadmin section, or add yourself as a member of one.'
+            : 'Your account is not a member of any organization yet — ask your administrator.'
+        }
+      />
+    );
+  }
+  return <>{children}</>;
+}
+
+function SuperadminRoute({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
+  if (user?.globalRole !== 'superadmin') return <Navigate to="/devices" replace />;
+  return <>{children}</>;
+}
 
 export function App() {
   const { user, loading } = useAuth();
@@ -25,28 +52,125 @@ export function App() {
     return (
       <Routes>
         <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
+  }
+
+  // Accounts created with a temporary password must set their own first.
+  if (user.mustChangePassword) {
+    return <ChangePasswordPage forced />;
   }
 
   return (
     <Routes>
       <Route element={<Layout />}>
         <Route path="/" element={<Navigate to="/devices" replace />} />
-        <Route path="/devices" element={<DevicesPage />} />
-        <Route path="/devices/:deviceId" element={<DeviceDetailPage />} />
-        <Route path="/media" element={<MediaPage />} />
-        <Route path="/playlists" element={<PlaylistsPage />} />
-        <Route path="/playlists/:playlistId" element={<PlaylistEditorPage />} />
-        <Route path="/schedules" element={<SchedulesPage />} />
-        <Route path="/schedules/new" element={<ScheduleEditorPage />} />
-        <Route path="/schedules/:scheduleId" element={<ScheduleEditorPage />} />
-        <Route path="/monitoring" element={<MonitoringPage />} />
-        <Route path="/emergency" element={<EmergencyPage />} />
+        <Route
+          path="/devices"
+          element={
+            <OrgRoute>
+              <DevicesPage />
+            </OrgRoute>
+          }
+        />
+        <Route
+          path="/devices/:deviceId"
+          element={
+            <OrgRoute>
+              <DeviceDetailPage />
+            </OrgRoute>
+          }
+        />
+        <Route
+          path="/media"
+          element={
+            <OrgRoute>
+              <MediaPage />
+            </OrgRoute>
+          }
+        />
+        <Route
+          path="/playlists"
+          element={
+            <OrgRoute>
+              <PlaylistsPage />
+            </OrgRoute>
+          }
+        />
+        <Route
+          path="/playlists/:playlistId"
+          element={
+            <OrgRoute>
+              <PlaylistEditorPage />
+            </OrgRoute>
+          }
+        />
+        <Route
+          path="/schedules"
+          element={
+            <OrgRoute>
+              <SchedulesPage />
+            </OrgRoute>
+          }
+        />
+        <Route
+          path="/schedules/new"
+          element={
+            <OrgRoute>
+              <ScheduleEditorPage />
+            </OrgRoute>
+          }
+        />
+        <Route
+          path="/schedules/:scheduleId"
+          element={
+            <OrgRoute>
+              <ScheduleEditorPage />
+            </OrgRoute>
+          }
+        />
+        <Route
+          path="/monitoring"
+          element={
+            <OrgRoute>
+              <MonitoringPage />
+            </OrgRoute>
+          }
+        />
+        <Route
+          path="/emergency"
+          element={
+            <OrgRoute>
+              <EmergencyPage />
+            </OrgRoute>
+          }
+        />
         <Route path="/settings" element={<SettingsPage />} />
-        <Route path="/settings/organization" element={<OrgSettingsPage />} />
+        <Route
+          path="/settings/organization"
+          element={
+            <OrgRoute>
+              <OrgSettingsPage />
+            </OrgRoute>
+          }
+        />
+        <Route
+          path="/superadmin"
+          element={
+            <SuperadminRoute>
+              <SuperadminOrgsPage />
+            </SuperadminRoute>
+          }
+        />
+        <Route
+          path="/superadmin/users"
+          element={
+            <SuperadminRoute>
+              <SuperadminUsersPage />
+            </SuperadminRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/devices" replace />} />
       </Route>
     </Routes>

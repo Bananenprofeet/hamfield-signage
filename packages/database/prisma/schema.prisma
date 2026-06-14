@@ -18,6 +18,33 @@ enum OrgRole {
   viewer
 }
 
+enum GlobalRole {
+  user
+  superadmin
+}
+
+enum OrgStatus {
+  active
+  disabled
+}
+
+enum PlaybackOrderMode {
+  manual_order
+  alphabetical
+  random
+  random_with_priority_rules
+}
+
+enum PlaylistItemType {
+  media
+  folder
+}
+
+enum PrioritySelectionMode {
+  rotate
+  random
+}
+
 enum DeviceOrientation {
   landscape
   portrait
@@ -92,35 +119,47 @@ enum ProcessingJobStatus {
 // ============================================================
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id                 String     @id @default(cuid())
+  email              String     @unique
+  passwordHash       String
+  name               String
+  globalRole         GlobalRole @default(user)
+  mustChangePassword Boolean    @default(false)
+  disabledAt         DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
 
   memberships        OrganizationMember[]
   createdCommands    DeviceCommand[]
   emergencyOverrides EmergencyOverride[]
+  createdFolders     MediaFolder[]
+  auditLogs          AuditLog[]           @relation("AuditActor")
 
   @@map("users")
 }
 
 model Organization {
-  id        String    @id @default(cuid())
-  name      String
-  slug      String    @unique
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  id           String    @id @default(cuid())
+  name         String
+  slug         String    @unique
+  status       OrgStatus @default(active)
+  planName     String?
+  maxDevices   Int?
+  maxStorageGb Int?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
 
   members            OrganizationMember[]
   devices            Device[]
   deviceGroups       DeviceGroup[]
   mediaAssets        MediaAsset[]
+  mediaFolders       MediaFolder[]
   playlists          Playlist[]
   schedules          Schedule[]
   emergencyOverrides EmergencyOverride[]
+  priorityRules      PlaylistPriorityRule[]
+  auditLogs          AuditLog[]
 
   @@map("organizations")
 }
@@ -258,9 +297,33 @@ model DeviceGroupMembership {
 // Media
 // ============================================================
 
+model MediaFolder {
+  id              String    @id @default(cuid())
+  organizationId  String
+  parentFolderId  String?
+  name            String
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parentFolder MediaFolder?  @relation("FolderTree", fields: [parentFolderId], references: [id], onDelete: SetNull)
+  subfolders   MediaFolder[] @relation("FolderTree")
+  createdBy    User?         @relation(fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  mediaAssets             MediaAsset[]
+  playlistItems           PlaylistItem[]
+  priorityRuleAssignments PlaylistPriorityRuleAssignment[]
+
+  @@index([organizationId, parentFolderId, deletedAt])
+  @@map("media_folders")
+}
+
 model MediaAsset {
   id                 String           @id @default(cuid())
   organizationId     String
+  folderId           String?
   name               String
   originalFilename   String
   mediaType          MediaType
@@ -283,14 +346,17 @@ model MediaAsset {
   deletedAt          DateTime?
 
   organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  folder         MediaFolder?         @relation(fields: [folderId], references: [id], onDelete: SetNull)
   variants       MediaVariant[]
   playlistItems  PlaylistItem[]
   emergencyOverrides EmergencyOverride[]
   playbackEvents PlaybackEvent[]
   processingJobs MediaProcessingJob[]
+  priorityRuleAssignments PlaylistPriorityRuleAssignment[]
 
   @@index([organizationId, deletedAt, mediaType])
   @@index([organizationId, processingStatus])
+  @@index([organizationId, folderId, deletedAt])
   @@map("media_assets")
 }
 
@@ -335,43 +401,101 @@ model MediaProcessingJob {
 // ============================================================
 
 model Playlist {
-  id                          String    @id @default(cuid())
+  id                          String            @id @default(cuid())
   organizationId              String
   name                        String
   description                 String?
-  loop                        Boolean   @default(true)
-  defaultImageDurationSeconds Int       @default(10)
-  createdAt                   DateTime  @default(now())
-  updatedAt                   DateTime  @updatedAt
+  loop                        Boolean           @default(true)
+  defaultImageDurationSeconds Int               @default(10)
+  playbackOrderMode           PlaybackOrderMode @default(manual_order)
+  clonedFromPlaylistId        String?
+  clonedAt                    DateTime?
+  createdByUserId             String?
+  createdAt                   DateTime          @default(now())
+  updatedAt                   DateTime          @updatedAt
   deletedAt                   DateTime?
 
-  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization       Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  clonedFrom         Playlist?              @relation("PlaylistClones", fields: [clonedFromPlaylistId], references: [id], onDelete: SetNull)
+  clones             Playlist[]             @relation("PlaylistClones")
   items              PlaylistItem[]
+  priorityRules      PlaylistPriorityRule[]
   schedules          Schedule[]
   emergencyOverrides EmergencyOverride[]
-  defaultForDevices  Device[]            @relation("DeviceDefaultPlaylist")
+  defaultForDevices  Device[]               @relation("DeviceDefaultPlaylist")
 
   @@index([organizationId, deletedAt])
   @@map("playlists")
 }
 
 model PlaylistItem {
-  id              String   @id @default(cuid())
-  playlistId      String
-  mediaAssetId    String
-  position        Int
-  durationSeconds Float?
-  fitMode         FitMode?
-  enabled         Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  id                String           @id @default(cuid())
+  playlistId        String
+  type              PlaylistItemType @default(media)
+  mediaAssetId      String?
+  folderId          String?
+  position          Int
+  durationSeconds   Float?
+  fitMode           FitMode?
+  enabled           Boolean          @default(true)
+  includeSubfolders Boolean          @default(false)
+  /// null = include all media types (folder entries only).
+  filterMediaType   MediaType?
+  /// null = include all orientations (folder entries only).
+  filterOrientation MediaOrientation?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
 
-  playlist   Playlist   @relation(fields: [playlistId], references: [id], onDelete: Cascade)
-  mediaAsset MediaAsset @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  playlist   Playlist     @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  mediaAsset MediaAsset?  @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  folder     MediaFolder? @relation(fields: [folderId], references: [id], onDelete: Cascade)
 
   @@index([playlistId, position])
   @@index([mediaAssetId])
+  @@index([folderId])
   @@map("playlist_items")
+}
+
+model PlaylistPriorityRule {
+  id             String                @id @default(cuid())
+  organizationId String
+  playlistId     String
+  name           String
+  /// A rule item plays after every `intervalCount` normal items.
+  intervalCount  Int
+  selectionMode  PrioritySelectionMode @default(rotate)
+  enabled        Boolean               @default(true)
+  position       Int                   @default(0)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  deletedAt      DateTime?
+
+  organization Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  playlist     Playlist                         @relation(fields: [playlistId], references: [id], onDelete: Cascade)
+  assignments  PlaylistPriorityRuleAssignment[]
+
+  @@index([playlistId, deletedAt])
+  @@map("playlist_priority_rules")
+}
+
+model PlaylistPriorityRuleAssignment {
+  id                String   @id @default(cuid())
+  organizationId    String
+  priorityRuleId    String
+  mediaAssetId      String?
+  folderId          String?
+  includeSubfolders Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  priorityRule PlaylistPriorityRule @relation(fields: [priorityRuleId], references: [id], onDelete: Cascade)
+  mediaAsset   MediaAsset?          @relation(fields: [mediaAssetId], references: [id], onDelete: Cascade)
+  folder       MediaFolder?         @relation(fields: [folderId], references: [id], onDelete: Cascade)
+
+  @@index([priorityRuleId])
+  @@index([mediaAssetId])
+  @@index([folderId])
+  @@map("playlist_priority_rule_assignments")
 }
 
 model Schedule {
@@ -541,9 +665,18 @@ model DeviceLog {
 
 model PlaybackEvent {
   id           String            @id @default(cuid())
+  /// Nullable for events recorded before the v2 upgrade (backfilled when possible).
+  organizationId String?
   deviceId     String
   mediaAssetId String?
   playlistId   String?
+  /// Set when the item was inserted by a priority rule.
+  priorityRuleId String?
+  /// 'normal' | 'priority' (null for pre-v2 events).
+  playedAs     String?
+  /// Client-generated id used to deduplicate re-submitted offline batches.
+  clientEventId String?
+  durationSeconds Float?
   eventType    PlaybackEventType
   detail       Json?
   occurredAt   DateTime
@@ -552,8 +685,36 @@ model PlaybackEvent {
   device     Device      @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   mediaAsset MediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
 
+  @@unique([deviceId, clientEventId])
   @@index([deviceId, occurredAt])
+  @@index([organizationId, mediaAssetId, eventType, occurredAt])
   @@map("playback_events")
+}
+
+// ============================================================
+// Audit log
+// ============================================================
+
+model AuditLog {
+  id              String   @id @default(cuid())
+  actorUserId     String?
+  actorGlobalRole String?
+  organizationId  String?
+  targetType      String
+  targetId        String?
+  action          String
+  metadata        Json     @default("{}")
+  ipAddress       String?
+  userAgent       String?
+  createdAt       DateTime @default(now())
+
+  actor        User?         @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action, createdAt])
+  @@map("audit_logs")
 }
 
 model DeviceScreenshot {

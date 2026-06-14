@@ -3,10 +3,16 @@ import type {
   CommandType,
   DeviceOrientation,
   FitMode,
+  GlobalRole,
   MediaOrientation,
   MediaType,
   OrgRole,
+  OrgStatus,
   PlaybackEventType,
+  PlaybackOrderMode,
+  PlayedAs,
+  PlaylistItemType,
+  PrioritySelectionMode,
   ProcessingStatus,
   SyncStatus,
 } from './enums';
@@ -15,6 +21,9 @@ export interface UserDto {
   id: string;
   email: string;
   name: string;
+  globalRole: GlobalRole;
+  mustChangePassword: boolean;
+  disabledAt?: string | null;
   createdAt: string;
 }
 
@@ -22,6 +31,10 @@ export interface OrganizationDto {
   id: string;
   name: string;
   slug: string;
+  status: OrgStatus;
+  planName?: string | null;
+  maxDevices?: number | null;
+  maxStorageGb?: number | null;
   role?: OrgRole;
   createdAt: string;
 }
@@ -88,9 +101,24 @@ export interface DeviceGroupDto {
   createdAt: string;
 }
 
+export interface MediaFolderDto {
+  id: string;
+  organizationId: string;
+  parentFolderId: string | null;
+  name: string;
+  /** Human-readable path computed from parent relationships, e.g. "Campaigns / Summer". */
+  path: string;
+  mediaCount?: number;
+  subfolderCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface MediaAssetDto {
   id: string;
   organizationId: string;
+  folderId: string | null;
+  folderPath?: string | null;
   name: string;
   originalFilename: string;
   mediaType: MediaType;
@@ -107,6 +135,9 @@ export interface MediaAssetDto {
   checksumSha256: string | null;
   thumbnailUrl: string | null;
   previewUrl: string | null;
+  playCount?: number;
+  lastPlayedAt?: string | null;
+  usedInPlaylistCount?: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -114,12 +145,41 @@ export interface MediaAssetDto {
 export interface PlaylistItemDto {
   id: string;
   playlistId: string;
-  mediaAssetId: string;
+  type: PlaylistItemType;
+  mediaAssetId: string | null;
+  folderId: string | null;
   position: number;
   durationSeconds: number | null;
   fitMode: FitMode | null;
   enabled: boolean;
+  includeSubfolders: boolean;
+  filterMediaType: MediaType | null;
+  filterOrientation: MediaOrientation | null;
   media?: MediaAssetDto;
+  folder?: { id: string; name: string; path: string } | null;
+}
+
+export interface PriorityRuleAssignmentDto {
+  id: string;
+  mediaAssetId: string | null;
+  folderId: string | null;
+  includeSubfolders: boolean;
+  media?: MediaAssetDto | null;
+  folder?: { id: string; name: string; path: string } | null;
+}
+
+export interface PriorityRuleDto {
+  id: string;
+  organizationId: string;
+  playlistId: string;
+  name: string;
+  intervalCount: number;
+  selectionMode: PrioritySelectionMode;
+  enabled: boolean;
+  position: number;
+  assignments: PriorityRuleAssignmentDto[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PlaylistDto {
@@ -129,11 +189,152 @@ export interface PlaylistDto {
   description: string | null;
   loop: boolean;
   defaultImageDurationSeconds: number;
+  playbackOrderMode: PlaybackOrderMode;
+  clonedFromPlaylistId: string | null;
+  clonedAt: string | null;
   itemCount: number;
   totalDurationSeconds: number | null;
   items?: PlaylistItemDto[];
+  priorityRules?: PriorityRuleDto[];
   createdAt: string;
   updatedAt: string;
+}
+
+// ---------- Resolved playlist preview ----------
+
+export type ResolvedItemSource = 'item' | 'folder' | 'priority_rule';
+
+export interface ResolvedPreviewItem {
+  /** Playlist item / synthetic entry id this media resolved from. */
+  entryId: string;
+  mediaId: string;
+  name: string;
+  mediaType: MediaType;
+  orientation: MediaOrientation | null;
+  processingStatus: ProcessingStatus;
+  durationSeconds: number | null;
+  source: ResolvedItemSource;
+  sourceId: string;
+  /** Folder path or priority rule name for display. */
+  sourceName: string | null;
+  thumbnailUrl?: string | null;
+}
+
+export interface PreviewWarning {
+  kind:
+    | 'empty_folder'
+    | 'processing_media'
+    | 'failed_media'
+    | 'missing_media'
+    | 'orientation_mismatch'
+    | 'empty_priority_rule'
+    | 'disabled_priority_rules_inactive';
+  message: string;
+}
+
+export interface ResolvedSampleEntry {
+  mediaId: string;
+  name: string;
+  playedAs: PlayedAs;
+  priorityRuleId?: string;
+  priorityRuleName?: string;
+}
+
+export interface ResolvedPreviewDto {
+  playlistId: string;
+  playbackOrderMode: PlaybackOrderMode;
+  resolvedCount: number;
+  totalDurationSeconds: number | null;
+  /** Exact order for manual/alphabetical; resolution order for random modes. */
+  items: ResolvedPreviewItem[];
+  /** Sample playback sequence for the random modes (real order will differ). */
+  sample: ResolvedSampleEntry[] | null;
+  warnings: PreviewWarning[];
+}
+
+// ---------- Usage / safe delete ----------
+
+export interface UsageRef {
+  id: string;
+  name: string;
+}
+
+export interface MediaUsageDto {
+  directPlaylists: UsageRef[];
+  folderPlaylists: UsageRef[];
+  priorityRules: Array<UsageRef & { playlistId: string; playlistName: string }>;
+  activeSchedules: UsageRef[];
+  affectedDeviceCount: number;
+  playCount: number;
+}
+
+export interface FolderUsageDto {
+  mediaCount: number;
+  subfolderCount: number;
+  /** Playlists referencing this folder (or a subfolder) as a dynamic entry. */
+  directPlaylistRefs: UsageRef[];
+  /** Playlists using media inside this folder as direct items. */
+  mediaPlaylistRefs: UsageRef[];
+  priorityRuleRefs: Array<UsageRef & { playlistId: string; playlistName: string }>;
+  activeSchedules: UsageRef[];
+  affectedDeviceCount: number;
+}
+
+export interface MediaPlaybackStatsDto {
+  totalPlayCount: number;
+  firstPlayedAt: string | null;
+  lastPlayedAt: string | null;
+  perDevice: Array<{
+    deviceId: string;
+    deviceName: string;
+    playCount: number;
+    lastPlayedAt: string;
+  }>;
+  perPlaylist: Array<{
+    playlistId: string;
+    playlistName: string;
+    playCount: number;
+    lastPlayedAt: string;
+  }>;
+}
+
+// ---------- Superadmin ----------
+
+export interface SuperadminOrganizationDto extends OrganizationDto {
+  deviceCount: number;
+  userCount: number;
+  mediaCount: number;
+  storageUsedBytes: number;
+}
+
+export interface SuperadminUserDto {
+  id: string;
+  email: string;
+  name: string;
+  globalRole: GlobalRole;
+  mustChangePassword: boolean;
+  disabledAt: string | null;
+  createdAt: string;
+  memberships: Array<{
+    membershipId: string;
+    organizationId: string;
+    organizationName: string;
+    role: OrgRole;
+  }>;
+}
+
+export interface AuditLogDto {
+  id: string;
+  actorUserId: string | null;
+  actorName?: string | null;
+  actorGlobalRole: string | null;
+  organizationId: string | null;
+  targetType: string;
+  targetId: string | null;
+  action: string;
+  metadata: Record<string, unknown>;
+  ipAddress: string | null;
+  createdAt: string;
 }
 
 export interface ScheduleDto {

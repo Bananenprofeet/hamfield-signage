@@ -42,7 +42,6 @@ flowchart LR
   storage -- "presigned / streamed<br/>downloads" --> agent
 ```
 
-
 Three deployable parts:
 
 1. **Cloud backend** — `apps/api` (Fastify), `apps/worker` (BullMQ + FFmpeg),
@@ -80,6 +79,16 @@ Two completely separate credential systems:
 - **Users** — email/password (bcrypt) → JWT. Org membership carries a role:
   `owner > admin > editor > viewer`. Every `/orgs/:orgId/...` route checks the
   caller's role in that org; all queries are org-scoped; deletes are soft deletes.
+  A user also has a platform-level `globalRole` (`user` | `superadmin`).
+  **Superadmins** manage the platform itself — organizations, users, and
+  memberships — via `/superadmin/*` routes; this is separate from org ownership.
+  Accounts can be disabled (`disabledAt`) and forced to change password on first
+  login (`mustChangePassword`); disabled users and disabled organizations are
+  rejected at login and on `/auth/me`. **Public registration is disabled**
+  (`POST /auth/register` → `410 Gone`): accounts are created by a superadmin (or
+  an org admin within their org). Privileged and destructive actions are recorded
+  in an append-only `AuditLog` (actor, action, target, metadata, IP) that never
+  stores passwords.
 - **Devices** — a pairing flow followed by a long-lived bearer token:
   1. Creating a screen in the dashboard generates a single-use pairing code
      (8 chars from an unambiguous alphabet, expiring).
@@ -89,7 +98,7 @@ Two completely separate credential systems:
      constant-time. Tokens can be revoked from the dashboard, which forces
      re-pairing with a fresh code.
 
-Other measures: rate limits on register/login/pair, upload validation by magic
+Other measures: rate limits on login/change-password/pair, upload validation by magic
 bytes (never trusting the client mime type), sanitized object names, media served
 to devices only after device-token auth, and dashboard media URLs presigned with
 short expiry.
@@ -150,20 +159,37 @@ the agent. All decisions live in testable agent code.
 
 See [sync-protocol.md](sync-protocol.md). Summary: the server builds a per-device
 `SyncManifest` (settings, emergency state, schedules, playlists, media with
-checksums and download paths) stamped with a `protocolVersion` and a content-hash
-`version`. Devices skip work when the version is unchanged, otherwise download/
-verify/apply transactionally and report `sync-status` back, which the dashboard
-shows per screen (`never_synced | syncing | in_sync | error`).
+checksums and download paths) stamped with a `protocolVersion` (now **2**) and a
+content-hash `version`. Dynamic folder entries and priority-rule assignments are
+resolved to concrete ready-media ids at build time, and the playlist's
+`playbackOrderMode` is applied on-device, so folder/alphabetical/random/priority
+playback all work fully offline. Devices skip work when the version is unchanged,
+otherwise download/verify/apply transactionally and report `sync-status` back,
+which the dashboard shows per screen (`never_synced | syncing | in_sync | error`).
 
 ## Data model
 
 Prisma schema in `packages/database/prisma/schema.prisma` (PostgreSQL). Core
-models: `User`, `Organization`, `OrganizationMember` (role), `Device`,
-`DeviceGroup`/`DeviceGroupMember`, `PairingCode`, `MediaAsset`/`MediaVariant`,
-`Playlist`/`PlaylistItem`, `Schedule` (+ device/group targets),
-`EmergencyOverride` (+ targets), `DeviceCommand`, `DeviceHeartbeat`, `DeviceLog`,
-`PlaybackEvent`, `DeviceScreenshot`. Everything user-facing is org-scoped and
+models: `User` (+ `globalRole`), `Organization` (+ `status`/plan/limits),
+`OrganizationMember` (role), `Device`, `DeviceGroup`/`DeviceGroupMember`,
+`PairingCode`, `MediaFolder`, `MediaAsset`/`MediaVariant`,
+`Playlist`/`PlaylistItem`, `PlaylistPriorityRule`/`PlaylistPriorityRuleAssignment`,
+`Schedule` (+ device/group targets), `EmergencyOverride` (+ targets),
+`DeviceCommand`, `DeviceHeartbeat`, `DeviceLog`, `PlaybackEvent`,
+`DeviceScreenshot`, `AuditLog`. Everything user-facing is org-scoped and
 soft-deleted (`deletedAt`); device telemetry tables are append-only and pruned.
+
+**v2 content model.** `MediaFolder` is a nestable, org-scoped logical grouping
+(`parentFolderId`); media gains an optional `folderId`. Folders never move storage
+objects, and playlists reference folders by id, so renames/moves don't break
+content. A `PlaylistItem` is either a direct media item (`type = media`) or a
+**dynamic folder entry** (`type = folder`, with include-subfolders and media-type/
+orientation filters) that resolves to current folder contents at sync/preview
+time. A playlist's `playbackOrderMode` selects manual / alphabetical / random /
+random-with-priority playback; `PlaylistPriorityRule` (+ assignments) drives the
+last mode. Folder/random/priority resolution is shared by the sync manifest
+builder, the resolved-preview endpoint, and the device engine
+(`@signage/shared` `PlaybackQueueEngine`) so server and device cannot drift.
 
 ## Development environment
 

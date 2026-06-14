@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import pino from 'pino';
@@ -60,6 +61,12 @@ export async function startAgent(env: NodeJS.ProcessEnv = process.env): Promise<
       eventType: event.eventType,
       mediaAssetId: event.mediaId,
       playlistId: event.playlistId,
+      // Generated here (not in the player) so every buffered event has one,
+      // making offline resubmission idempotent on the backend.
+      clientEventId: randomUUID(),
+      playedAs: event.playedAs ?? null,
+      priorityRuleId: event.priorityRuleId ?? null,
+      durationSeconds: event.durationSeconds ?? null,
       detail: event.detail,
       occurredAt: event.occurredAt,
     });
@@ -110,6 +117,10 @@ export async function startAgent(env: NodeJS.ProcessEnv = process.env): Promise<
           eventType: e.eventType,
           mediaAssetId: e.mediaAssetId,
           playlistId: e.playlistId,
+          clientEventId: e.clientEventId,
+          playedAs: e.playedAs,
+          priorityRuleId: e.priorityRuleId,
+          durationSeconds: e.durationSeconds,
           detail: e.detail ? (JSON.parse(e.detail) as Record<string, unknown>) : undefined,
           occurredAt: e.occurredAt,
         })),

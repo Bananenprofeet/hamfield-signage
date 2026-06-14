@@ -1,4 +1,4 @@
-import type { CommandType } from './enums';
+import type { CommandType, PlaybackOrderMode, PlayedAs, PrioritySelectionMode } from './enums';
 
 // ============================================================
 // Device <-> Backend WebSocket protocol (outbound from device)
@@ -93,6 +93,18 @@ export interface PlayerStateItem {
   name?: string;
 }
 
+export interface PlayerPriorityRule {
+  id: string;
+  name: string;
+  /** One rule item plays after every `intervalCount` normal items. */
+  intervalCount: number;
+  selectionMode: PrioritySelectionMode;
+  position: number;
+  createdAt?: string;
+  /** Playable rule content, resolved and cached like normal items. */
+  items: PlayerStateItem[];
+}
+
 export interface PlayerState {
   /** Increments whenever the playable content changes. */
   revision: number;
@@ -102,7 +114,14 @@ export interface PlayerState {
   playlistId: string | null;
   playlistName: string | null;
   loop: boolean;
+  /**
+   * How the player should order `items`. For manual/alphabetical the items
+   * are already in final order; for the random modes the player shuffles.
+   */
+  playbackOrderMode: PlaybackOrderMode;
   items: PlayerStateItem[];
+  /** Active only when playbackOrderMode is random_with_priority_rules. */
+  priorityRules: PlayerPriorityRule[];
   /** Shown on the fallback screen when there is nothing to play. */
   statusMessage: string | null;
   paired: boolean;
@@ -129,6 +148,10 @@ export interface PlayerPlaybackEventMessage {
   itemId: string;
   mediaId: string;
   playlistId: string | null;
+  /** Whether the item played as normal content or via a priority rule. */
+  playedAs?: PlayedAs;
+  priorityRuleId?: string | null;
+  durationSeconds?: number | null;
   detail?: Record<string, unknown>;
   occurredAt: string;
 }

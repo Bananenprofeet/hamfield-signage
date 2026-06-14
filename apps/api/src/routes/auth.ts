@@ -1,53 +1,20 @@
 import type { FastifyInstance } from 'fastify';
-import { loginSchema, registerSchema } from '@signage/shared';
+import { changePasswordSchema, loginSchema } from '@signage/shared';
 import { hashPassword, signUserToken, verifyPassword } from '../lib/auth';
-import { authenticateUser } from '../plugins/auth';
-import { conflict, unauthorized } from '../lib/errors';
+import { authenticateUser, requireActiveUser } from '../plugins/auth';
+import { badRequest, forbidden, gone, unauthorized } from '../lib/errors';
+import { writeAudit } from '../lib/audit';
 import { serializeOrg, serializeUser } from '../lib/serializers';
-
-function slugify(name: string): string {
-  const base = name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-  const suffix = Math.random().toString(36).slice(2, 8);
-  return base ? `${base}-${suffix}` : suffix;
-}
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   const { prisma } = app;
 
-  app.post(
-    '/auth/register',
-    { config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
-    async (req, reply) => {
-      const body = registerSchema.parse(req.body);
-
-      const existing = await prisma.user.findUnique({ where: { email: body.email } });
-      if (existing) throw conflict('An account with this email already exists');
-
-      const passwordHash = await hashPassword(body.password);
-      const user = await prisma.user.create({
-        data: { email: body.email, passwordHash, name: body.name },
-      });
-      const org = await prisma.organization.create({
-        data: {
-          name: body.organizationName,
-          slug: slugify(body.organizationName),
-          members: { create: { userId: user.id, role: 'owner' } },
-        },
-      });
-
-      req.log.info({ userId: user.id, orgId: org.id }, 'auth: user registered');
-      const token = signUserToken({ sub: user.id, email: user.email });
-      return reply.status(201).send({
-        token,
-        user: serializeUser(user),
-        organizations: [serializeOrg(org, 'owner')],
-      });
-    },
-  );
+  // Public registration was removed in v2: accounts are created by a
+  // superadmin (or organization admins). The route stays registered so old
+  // clients get an explicit error instead of a confusing 404.
+  app.post('/auth/register', async () => {
+    throw gone('Public registration is disabled. Ask your administrator for an account.');
+  });
 
   app.post(
     '/auth/login',
@@ -65,6 +32,10 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
         req.log.warn({ userId: user.id }, 'auth: login failed (bad password)');
         throw unauthorized('Invalid email or password');
       }
+      if (user.disabledAt) {
+        req.log.warn({ userId: user.id }, 'auth: login rejected (account disabled)');
+        throw forbidden('This account has been disabled');
+      }
 
       const memberships = await prisma.organizationMember.findMany({
         where: { userId: user.id, organization: { deletedAt: null } },
@@ -72,24 +43,58 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       });
 
       req.log.info({ userId: user.id }, 'auth: login success');
+      if (user.globalRole === 'superadmin') {
+        await writeAudit(prisma, req, {
+          action: 'superadmin.login',
+          targetType: 'user',
+          targetId: user.id,
+          actorUserId: user.id,
+          actorGlobalRole: 'superadmin',
+        });
+      }
       return {
         token: signUserToken({ sub: user.id, email: user.email }),
         user: serializeUser(user),
-        organizations: memberships.map((m) => serializeOrg(m.organization, m.role)),
+        organizations: memberships
+          .filter((m) => m.organization.status === 'active' || user.globalRole === 'superadmin')
+          .map((m) => serializeOrg(m.organization, m.role)),
       };
     },
   );
 
   app.get('/auth/me', { preHandler: authenticateUser }, async (req) => {
-    const user = await prisma.user.findUnique({ where: { id: req.user!.id } });
-    if (!user) throw unauthorized();
+    const user = await requireActiveUser(prisma, req);
     const memberships = await prisma.organizationMember.findMany({
       where: { userId: user.id, organization: { deletedAt: null } },
       include: { organization: true },
     });
     return {
       user: serializeUser(user),
-      organizations: memberships.map((m) => serializeOrg(m.organization, m.role)),
+      organizations: memberships
+        .filter((m) => m.organization.status === 'active' || user.globalRole === 'superadmin')
+        .map((m) => serializeOrg(m.organization, m.role)),
     };
   });
+
+  app.post(
+    '/auth/change-password',
+    { preHandler: authenticateUser, config: { rateLimit: { max: 5, timeWindow: '1 minute' } } },
+    async (req) => {
+      const body = changePasswordSchema.parse(req.body);
+      const user = await requireActiveUser(prisma, req);
+
+      const valid = await verifyPassword(body.currentPassword, user.passwordHash);
+      if (!valid) throw unauthorized('Current password is incorrect');
+      if (body.currentPassword === body.newPassword) {
+        throw badRequest('New password must differ from the current password');
+      }
+
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { passwordHash: await hashPassword(body.newPassword), mustChangePassword: false },
+      });
+      req.log.info({ userId: user.id }, 'auth: password changed');
+      return { ok: true };
+    },
+  );
 }

@@ -19,6 +19,13 @@ import { useOrgId } from '../lib/auth';
 import { formatDuration } from '../lib/format';
 import { useAction, useApi } from '../lib/hooks';
 
+export const ORDER_MODE_LABELS: Record<string, string> = {
+  manual_order: 'manual',
+  alphabetical: 'A–Z',
+  random: 'random',
+  random_with_priority_rules: 'random + priority',
+};
+
 export function PlaylistsPage() {
   const orgId = useOrgId();
   const navigate = useNavigate();
@@ -31,6 +38,11 @@ export function PlaylistsPage() {
     playlists.reload();
   });
 
+  const duplicate = useAction(async (playlist: PlaylistDto) => {
+    const clone = await api.post<PlaylistDto>(`/orgs/${orgId}/playlists/${playlist.id}/clone`);
+    navigate(`/playlists/${clone.id}`);
+  });
+
   return (
     <div>
       <PageHeader
@@ -39,7 +51,7 @@ export function PlaylistsPage() {
         actions={<Button onClick={() => setShowCreate(true)}>New playlist</Button>}
       />
 
-      <ErrorNote message={playlists.error ?? remove.error} />
+      <ErrorNote message={playlists.error ?? remove.error ?? duplicate.error} />
       {playlists.loading ? <Spinner /> : null}
 
       {playlists.data && playlists.data.length === 0 ? (
@@ -54,6 +66,7 @@ export function PlaylistsPage() {
                 <Th>Name</Th>
                 <Th>Items</Th>
                 <Th>Duration</Th>
+                <Th>Order</Th>
                 <Th>Loop</Th>
                 <Th></Th>
               </tr>
@@ -73,8 +86,24 @@ export function PlaylistsPage() {
                   </Td>
                   <Td>{playlist.itemCount}</Td>
                   <Td>{formatDuration(playlist.totalDurationSeconds)}</Td>
+                  <Td>
+                    <Badge tone={playlist.playbackOrderMode === 'manual_order' ? 'gray' : 'blue'}>
+                      {ORDER_MODE_LABELS[playlist.playbackOrderMode] ?? playlist.playbackOrderMode}
+                    </Badge>
+                  </Td>
                   <Td>{playlist.loop ? <Badge tone="green">loop</Badge> : <Badge>once</Badge>}</Td>
                   <Td>
+                    <Button
+                      variant="ghost"
+                      small
+                      disabled={duplicate.busy}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        duplicate.run(playlist);
+                      }}
+                    >
+                      Duplicate
+                    </Button>
                     <Button
                       variant="ghost"
                       small

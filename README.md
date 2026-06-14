@@ -24,6 +24,18 @@ through network outages from a local cache.
 - **14 remote commands** — restart player, reboot, refresh content, clear cache,
   screenshot, identify, set orientation/playlist/settings, emergency start/stop,
   send logs, health check, software update.
+- **Media folders** — nestable, organization-scoped folders (a logical grouping;
+  storage objects never move), with bulk move, cross-folder search, play counts,
+  and safe-delete warnings.
+- **Smart playlists** — dynamic folder entries that track folder contents,
+  playback order modes (manual / alphabetical / random / random with priority
+  rules), per-playlist priority rules ("after every X items, play a sponsor"),
+  a resolved preview, and one-click cloning. All order modes play offline.
+- **Superadmin & accounts** — install-time superadmin, a platform admin area for
+  managing organizations and users, forced first-login password change, and an
+  audit log of privileged actions. Public self-service registration is disabled.
+
+See [CHANGELOG.md](CHANGELOG.md) for the full v0.2 feature upgrade.
 
 ## Stack
 
@@ -81,6 +93,30 @@ Then open <http://localhost:5173> and log in:
 - **Password:** `password123`
 
 The seed also creates a demo screen with pairing code **`DEMO2345`**.
+
+### Accounts and the superadmin
+
+Public self-service registration is disabled. Accounts are created by a platform
+**superadmin** (or, within an organization, by an org admin). Bootstrap the first
+superadmin by setting these before the API starts (see `.env.example`):
+
+```bash
+INITIAL_SUPERADMIN_EMAIL=admin@yourco.com
+INITIAL_SUPERADMIN_PASSWORD=a-strong-password-min-12-chars
+INITIAL_SUPERADMIN_NAME="Platform Admin"
+```
+
+The account is created on startup only if no superadmin exists yet (existing
+superadmins are never overwritten, and the password is never logged). You can also
+manage it from the CLI at any time:
+
+```bash
+pnpm app:create-superadmin -- <email> <password> [name]
+pnpm app:reset-superadmin-password -- <email> <new-password>
+```
+
+Superadmins sign in at the normal login page and get a **Superadmin** area for
+managing organizations, users, and memberships.
 
 ### Simulated device
 
@@ -142,6 +178,7 @@ The device boots into a Chromium kiosk and appears online in the dashboard.
 - [docs/api.md](docs/api.md) — REST + WebSocket API reference
 - [docs/device-install.md](docs/device-install.md) — device setup, `signage` CLI, updates
 - [docs/sync-protocol.md](docs/sync-protocol.md) — manifest format and sync semantics
+- [CHANGELOG.md](CHANGELOG.md) — release history (v0.2 adds folders, smart playlists, superadmin)
 
 ## Notes
 

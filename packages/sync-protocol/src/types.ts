@@ -1,4 +1,11 @@
-import type { DeviceOrientation, FitMode, MediaOrientation, MediaType } from '@signage/shared';
+import type {
+  DeviceOrientation,
+  FitMode,
+  MediaOrientation,
+  MediaType,
+  PlaybackOrderMode,
+  PrioritySelectionMode,
+} from '@signage/shared';
 
 export interface ManifestDeviceSettings {
   name: string;
@@ -30,6 +37,28 @@ export interface ManifestPlaylistItem {
   durationSeconds: number | null;
   fitMode: FitMode | null;
   enabled: boolean;
+  /**
+   * Where this entry came from. Dynamic folder entries are resolved into
+   * concrete media at sync time so devices never need folder data offline.
+   * Absent/'item' = direct playlist item (v1 compatible).
+   */
+  source?: 'item' | 'folder';
+  /** Folder metadata for display/debugging when source = 'folder'. */
+  sourceFolderId?: string;
+  sourceFolderPath?: string;
+}
+
+export interface ManifestPriorityRule {
+  id: string;
+  name: string;
+  /** One rule item plays after every `intervalCount` normal items. */
+  intervalCount: number;
+  selectionMode: PrioritySelectionMode;
+  /** Manual order of the rule (deterministic tie-breaking). */
+  position: number;
+  createdAt: string;
+  /** Assignments resolved to concrete, ready media ids at sync time. */
+  mediaIds: string[];
 }
 
 export interface ManifestPlaylist {
@@ -37,7 +66,11 @@ export interface ManifestPlaylist {
   name: string;
   loop: boolean;
   defaultImageDurationSeconds: number;
+  /** Absent (v1 backends) = manual_order. */
+  playbackOrderMode?: PlaybackOrderMode;
   items: ManifestPlaylistItem[];
+  /** Active only when playbackOrderMode is random_with_priority_rules. */
+  priorityRules?: ManifestPriorityRule[];
 }
 
 export interface ManifestMedia {
