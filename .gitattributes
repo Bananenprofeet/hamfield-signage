@@ -1,0 +1,19 @@
+# Normalize all text files to LF in the repo and on checkout.
+# Prevents CRLF churn (and Prettier failures) on Windows checkouts.
+* text=auto eol=lf
+
+# Treat common binary assets as binary (never normalize).
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.mp4 binary
+*.pdf binary
+*.gz binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.eot binary
