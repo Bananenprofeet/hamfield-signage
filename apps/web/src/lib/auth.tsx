@@ -19,15 +19,11 @@ interface AuthContextValue {
   org: OrganizationDto | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (input: {
-    email: string;
-    password: string;
-    name: string;
-    organizationName: string;
-  }) => Promise<void>;
   logout: () => void;
   switchOrg: (orgId: string) => void;
   refreshOrgs: () => Promise<void>;
+  /** Re-fetches /auth/me, e.g. after a forced password change. */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -70,15 +66,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     [apply],
   );
 
-  const register = useCallback(
-    async (input: { email: string; password: string; name: string; organizationName: string }) => {
-      const response = await api.post<AuthResponse>('/auth/register', input);
-      setToken(response.token);
-      apply(response);
-    },
-    [apply],
-  );
-
   const logout = useCallback(() => {
     setToken(null);
     setUser(null);
@@ -95,6 +82,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOrganizations(orgs);
   }, []);
 
+  const refreshUser = useCallback(async () => {
+    const response = await api.get<{ user: UserDto; organizations: OrganizationDto[] }>('/auth/me');
+    apply(response);
+  }, [apply]);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -103,12 +95,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       org: organizations.find((o) => o.id === orgId) ?? null,
       loading,
       login,
-      register,
       logout,
       switchOrg,
       refreshOrgs,
+      refreshUser,
     }),
-    [user, organizations, orgId, loading, login, register, logout, switchOrg, refreshOrgs],
+    [user, organizations, orgId, loading, login, logout, switchOrg, refreshOrgs, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -79,7 +79,7 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 4000
       API_PUBLIC_URL: http://localhost:4000
-      JWT_SECRET: dev-only-secret-do-not-use-in-production
+      JWT_SECRET: ${JWT_SECRET:-compose-dev-jwt-secret-replace-in-prod-32x}
       CORS_ORIGINS: http://localhost:5173,http://localhost:8081
       S3_ENDPOINT: http://minio:9000
       S3_PUBLIC_ENDPOINT: http://localhost:9000
@@ -88,6 +88,11 @@ services:
       S3_ACCESS_KEY: signage
       S3_SECRET_KEY: signage-secret
       S3_FORCE_PATH_STYLE: "true"
+      # Install-time superadmin bootstrap (created once when no superadmin
+      # exists; never overwritten, password is never logged).
+      INITIAL_SUPERADMIN_EMAIL: ${INITIAL_SUPERADMIN_EMAIL:-}
+      INITIAL_SUPERADMIN_PASSWORD: ${INITIAL_SUPERADMIN_PASSWORD:-}
+      INITIAL_SUPERADMIN_NAME: ${INITIAL_SUPERADMIN_NAME:-}
     ports:
       - "4000:4000"
     depends_on:

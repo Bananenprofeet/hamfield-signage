@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Button, ErrorNote, Field, Input } from '../components/ui';
 import { useAuth } from '../lib/auth';
 import { useAction } from '../lib/hooks';
@@ -49,11 +49,8 @@ export function LoginPage() {
             {submit.busy ? 'Signing in…' : 'Sign in'}
           </Button>
         </form>
-        <p className="mt-4 text-center text-sm text-slate-500">
-          No account?{' '}
-          <Link to="/register" className="font-medium text-blue-600 hover:underline">
-            Create one
-          </Link>
+        <p className="mt-4 text-center text-xs text-slate-400">
+          Accounts are managed by your administrator.
         </p>
       </div>
     </div>

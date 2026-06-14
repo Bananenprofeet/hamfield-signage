@@ -16,3 +16,4 @@ tmp/
 .cache/
 apps/device-agent/.dev-data/
 apps/mock-device/.dev-data/
+ORIGINAL_PROMPT.txt

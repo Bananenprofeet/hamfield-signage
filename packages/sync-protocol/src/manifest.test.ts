@@ -69,6 +69,103 @@ describe('computeManifestVersion', () => {
   });
 });
 
+describe('v2 manifest content (folders, order modes, priority rules)', () => {
+  function makeV2Content(): Omit<SyncManifest, 'version' | 'generatedAt'> {
+    const content = makeManifestContent();
+    content.protocolVersion = 2;
+    content.playlists = [
+      {
+        id: 'pl-1',
+        name: 'Random playlist',
+        loop: true,
+        defaultImageDurationSeconds: 10,
+        playbackOrderMode: 'random_with_priority_rules',
+        items: [
+          {
+            id: 'item-1',
+            mediaId: 'media-1',
+            position: 0,
+            durationSeconds: null,
+            fitMode: null,
+            enabled: true,
+          },
+          {
+            id: 'item-2:media-1',
+            mediaId: 'media-1',
+            position: 1,
+            durationSeconds: null,
+            fitMode: null,
+            enabled: true,
+            source: 'folder',
+            sourceFolderId: 'folder-1',
+            sourceFolderPath: 'Campaigns / Summer',
+          },
+        ],
+        priorityRules: [
+          {
+            id: 'rule-1',
+            name: 'Sponsors',
+            intervalCount: 5,
+            selectionMode: 'rotate',
+            position: 0,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            mediaIds: ['media-1'],
+          },
+        ],
+      },
+    ];
+    return content;
+  }
+
+  it('versions are stable for identical v2 content', () => {
+    expect(computeManifestVersion(makeV2Content())).toBe(computeManifestVersion(makeV2Content()));
+  });
+
+  it('version changes when a folder-resolved item set changes', () => {
+    const a = makeV2Content();
+    const b = makeV2Content();
+    b.playlists[0].items = b.playlists[0].items.slice(0, 1);
+    expect(computeManifestVersion(a)).not.toBe(computeManifestVersion(b));
+  });
+
+  it('version changes when a priority rule changes', () => {
+    const a = makeV2Content();
+    const b = makeV2Content();
+    b.playlists[0].priorityRules![0].intervalCount = 3;
+    expect(computeManifestVersion(a)).not.toBe(computeManifestVersion(b));
+  });
+
+  it('version changes when the playback order mode changes', () => {
+    const a = makeV2Content();
+    const b = makeV2Content();
+    b.playlists[0].playbackOrderMode = 'alphabetical';
+    expect(computeManifestVersion(a)).not.toBe(computeManifestVersion(b));
+  });
+
+  it('keeps v1-shaped playlists valid (fields are optional)', () => {
+    const content = makeManifestContent();
+    content.playlists = [
+      {
+        id: 'pl-1',
+        name: 'Legacy playlist',
+        loop: true,
+        defaultImageDurationSeconds: 10,
+        items: [
+          {
+            id: 'item-1',
+            mediaId: 'media-1',
+            position: 0,
+            durationSeconds: null,
+            fitMode: null,
+            enabled: true,
+          },
+        ],
+      },
+    ];
+    expect(computeManifestVersion(content)).toBeTruthy();
+  });
+});
+
 describe('diffManifest', () => {
   it('downloads everything when cache is empty', () => {
     const media = [makeMedia({ id: 'm1' }), makeMedia({ id: 'm2' })];

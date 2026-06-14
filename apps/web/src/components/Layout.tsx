@@ -53,6 +53,32 @@ export function Layout() {
               {item.label}
             </NavLink>
           ))}
+
+          {user?.globalRole === 'superadmin' ? (
+            <>
+              <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Superadmin
+              </div>
+              {[
+                { to: '/superadmin', label: 'Companies', icon: '🏢', end: true },
+                { to: '/superadmin/users', label: 'Users', icon: '👥', end: false },
+              ].map((item) => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.end}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                      isActive ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-800/60'
+                    }`
+                  }
+                >
+                  <span aria-hidden>{item.icon}</span>
+                  {item.label}
+                </NavLink>
+              ))}
+            </>
+          ) : null}
         </nav>
 
         <div className="border-t border-slate-800 px-4 py-3">

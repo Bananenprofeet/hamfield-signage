@@ -25,6 +25,17 @@ const envSchema = z.object({
     .int()
     .default(1024 * 1024 * 1024),
   PAIRING_CODE_TTL_MINUTES: z.coerce.number().int().default(15),
+  // Install-time superadmin bootstrap (all three must be set to take effect).
+  // Empty strings (e.g. compose defaults) are treated as unset.
+  INITIAL_SUPERADMIN_EMAIL: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().email().optional(),
+  ),
+  INITIAL_SUPERADMIN_PASSWORD: z.preprocess(
+    (v) => (v === '' ? undefined : v),
+    z.string().optional(),
+  ),
+  INITIAL_SUPERADMIN_NAME: z.preprocess((v) => (v === '' ? undefined : v), z.string().optional()),
 });
 
 export type Env = z.infer<typeof envSchema>;

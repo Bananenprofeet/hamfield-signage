@@ -15,6 +15,12 @@ export const OFFLINE_THRESHOLD_SECONDS = 90;
 export const SYNC_INTERVAL_SECONDS = 60;
 export const POLL_FALLBACK_INTERVAL_SECONDS = 30;
 
-export const SYNC_PROTOCOL_VERSION = 1;
+/**
+ * v2 adds: playback order modes, server-resolved dynamic folder entries and
+ * priority rules. The manifest stays backwards compatible for manual
+ * playback: v1 agents ignore the new fields and keep playing resolved items
+ * in manifest order.
+ */
+export const SYNC_PROTOCOL_VERSION = 2;
 
 export const API_PREFIX = '/api/v1';

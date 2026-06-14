@@ -198,7 +198,7 @@ function AddMemberForm({ orgId, onAdded }: { orgId: string; onAdded: () => void 
         </Button>
       </div>
       <p className="mt-1.5 text-xs text-slate-500">
-        The person must already have an account — ask them to register first.
+        The person must already have an account — a superadmin can create one.
       </p>
       <ErrorNote message={add.error} />
     </form>

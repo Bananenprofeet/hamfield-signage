@@ -204,15 +204,24 @@ export async function deviceApiRoutes(app: FastifyInstance): Promise<void> {
     const body = playbackEventsSchema.parse(req.body);
     if (body.events.length === 0) return { saved: 0 };
 
+    // skipDuplicates + the (deviceId, clientEventId) unique constraint make
+    // offline batch resubmission idempotent: replayed events do not double
+    // count. Events without a clientEventId (old agents) are kept as-is.
     await prisma.playbackEvent.createMany({
       data: body.events.map((event) => ({
+        organizationId: dev.organizationId,
         deviceId: dev.id,
         eventType: event.eventType,
         mediaAssetId: event.mediaAssetId ?? null,
         playlistId: event.playlistId ?? null,
+        clientEventId: event.clientEventId ?? null,
+        priorityRuleId: event.priorityRuleId ?? null,
+        playedAs: event.playedAs ?? null,
+        durationSeconds: event.durationSeconds ?? null,
         detail: (event.detail ?? undefined) as Prisma.InputJsonValue | undefined,
         occurredAt: new Date(event.occurredAt),
       })),
+      skipDuplicates: true,
     });
 
     const latestStart = [...body.events]

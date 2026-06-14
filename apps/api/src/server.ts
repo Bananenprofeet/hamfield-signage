@@ -15,11 +15,14 @@ import { orgRoutes } from './routes/orgs';
 import { deviceRoutes } from './routes/devices';
 import { deviceGroupRoutes } from './routes/device-groups';
 import { mediaRoutes } from './routes/media';
+import { mediaFolderRoutes } from './routes/media-folders';
 import { playlistRoutes } from './routes/playlists';
+import { priorityRuleRoutes } from './routes/priority-rules';
 import { scheduleRoutes } from './routes/schedules';
 import { emergencyRoutes } from './routes/emergency';
 import { deviceApiRoutes } from './routes/device-api';
 import { deviceWsRoutes } from './routes/device-ws';
+import { superadminRoutes } from './routes/superadmin';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -105,11 +108,14 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
   await app.register(deviceRoutes, { prefix: '/api/v1' });
   await app.register(deviceGroupRoutes, { prefix: '/api/v1' });
   await app.register(mediaRoutes, { prefix: '/api/v1' });
+  await app.register(mediaFolderRoutes, { prefix: '/api/v1' });
   await app.register(playlistRoutes, { prefix: '/api/v1' });
+  await app.register(priorityRuleRoutes, { prefix: '/api/v1' });
   await app.register(scheduleRoutes, { prefix: '/api/v1' });
   await app.register(emergencyRoutes, { prefix: '/api/v1' });
   await app.register(deviceApiRoutes, { prefix: '/api/v1' });
   await app.register(deviceWsRoutes, { prefix: '/api/v1' });
+  await app.register(superadminRoutes, { prefix: '/api/v1' });
 
   return app;
 }

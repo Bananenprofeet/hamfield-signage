@@ -186,6 +186,112 @@ describe('computePlayerState', () => {
   });
 });
 
+describe('playback order modes (v2 manifests)', () => {
+  it('defaults to manual_order for v1 manifests without the field', () => {
+    const state = computePlayerState(manifest(), {
+      paired: true,
+      online: true,
+      cachedMediaIds: allCached,
+    });
+    expect(state.playbackOrderMode).toBe('manual_order');
+    expect(state.priorityRules).toEqual([]);
+  });
+
+  it('passes the order mode through for the player to apply', () => {
+    const m = manifest();
+    m.playlists[0].playbackOrderMode = 'random';
+    const state = computePlayerState(m, {
+      paired: true,
+      online: true,
+      cachedMediaIds: allCached,
+    });
+    expect(state.playbackOrderMode).toBe('random');
+    // The pool itself stays in manifest order — shuffling happens on screen.
+    expect(state.items.map((i) => i.id)).toEqual(['item-1', 'item-2']);
+  });
+
+  it('builds playable priority rules from cached media only', () => {
+    const m = manifest();
+    m.playlists[0].playbackOrderMode = 'random_with_priority_rules';
+    m.playlists[0].priorityRules = [
+      {
+        id: 'rule-1',
+        name: 'Sponsors',
+        intervalCount: 5,
+        selectionMode: 'rotate',
+        position: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        mediaIds: ['img-1', 'vid-1', 'missing-media'],
+      },
+      {
+        id: 'rule-2',
+        name: 'Empty rule',
+        intervalCount: 3,
+        selectionMode: 'random',
+        position: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        mediaIds: ['not-cached'],
+      },
+    ];
+    const state = computePlayerState(m, {
+      paired: true,
+      online: true,
+      cachedMediaIds: allCached,
+    });
+    expect(state.priorityRules).toHaveLength(1);
+    expect(state.priorityRules[0].id).toBe('rule-1');
+    expect(state.priorityRules[0].items.map((i) => i.mediaId)).toEqual(['img-1', 'vid-1']);
+    // Rule images inherit the playlist default duration.
+    expect(state.priorityRules[0].items[0].durationSeconds).toBe(10);
+  });
+
+  it('ignores priority rules unless the mode is random_with_priority_rules', () => {
+    const m = manifest();
+    m.playlists[0].playbackOrderMode = 'random';
+    m.playlists[0].priorityRules = [
+      {
+        id: 'rule-1',
+        name: 'Sponsors',
+        intervalCount: 5,
+        selectionMode: 'rotate',
+        position: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        mediaIds: ['img-1'],
+      },
+    ];
+    const state = computePlayerState(m, {
+      paired: true,
+      online: true,
+      cachedMediaIds: allCached,
+    });
+    expect(state.priorityRules).toEqual([]);
+  });
+
+  it('treats a playlist with only priority content as playable', () => {
+    const m = manifest();
+    m.playlists[0].playbackOrderMode = 'random_with_priority_rules';
+    m.playlists[0].items = [];
+    m.playlists[0].priorityRules = [
+      {
+        id: 'rule-1',
+        name: 'Sponsors',
+        intervalCount: 5,
+        selectionMode: 'rotate',
+        position: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        mediaIds: ['img-1'],
+      },
+    ];
+    const state = computePlayerState(m, {
+      paired: true,
+      online: true,
+      cachedMediaIds: allCached,
+    });
+    expect(state.statusMessage).toBeNull();
+    expect(state.priorityRules[0].items).toHaveLength(1);
+  });
+});
+
 describe('stateFingerprint', () => {
   it('is stable for identical states and differs when content changes', () => {
     const ctx = { paired: true, online: true, cachedMediaIds: allCached };

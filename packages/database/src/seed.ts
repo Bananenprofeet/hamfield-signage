@@ -10,9 +10,24 @@ const prisma = new PrismaClient();
 const DEMO_EMAIL = 'admin@example.com';
 const DEMO_PASSWORD = 'password123';
 const DEMO_PAIRING_CODE = 'DEMO2345';
+const SUPERADMIN_EMAIL = 'superadmin@example.com';
+const SUPERADMIN_PASSWORD = 'superadmin-dev-123';
 
 async function main(): Promise<void> {
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
+
+  // Dev-only platform superadmin (production installs use the
+  // INITIAL_SUPERADMIN_* env vars or the create-superadmin CLI instead).
+  await prisma.user.upsert({
+    where: { email: SUPERADMIN_EMAIL },
+    update: { globalRole: 'superadmin' },
+    create: {
+      email: SUPERADMIN_EMAIL,
+      passwordHash: await bcrypt.hash(SUPERADMIN_PASSWORD, 10),
+      name: 'Demo Superadmin',
+      globalRole: 'superadmin',
+    },
+  });
 
   const user = await prisma.user.upsert({
     where: { email: DEMO_EMAIL },
@@ -97,6 +112,7 @@ async function main(): Promise<void> {
 
   console.log('Seed complete.');
   console.log(`  Login:        ${DEMO_EMAIL} / ${DEMO_PASSWORD}`);
+  console.log(`  Superadmin:   ${SUPERADMIN_EMAIL} / ${SUPERADMIN_PASSWORD}`);
   console.log(`  Organization: ${org.name} (${org.id})`);
   console.log(`  Device:       ${device.name} (${device.id})`);
   console.log(`  Pairing code: ${device.pairingCode ?? DEMO_PAIRING_CODE}`);

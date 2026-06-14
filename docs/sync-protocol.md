@@ -12,7 +12,7 @@ or corrupted sync can never break playback. Types live in
 
 ```jsonc
 {
-  "protocolVersion": 1, // breaking-change gate
+  "protocolVersion": 2, // breaking-change gate (bumped in v2)
   "version": "8f3a…", // content hash of everything below
   "generatedAt": "2026-06-11T09:00:00.000Z",
   "deviceId": "dev_…",
@@ -41,6 +41,7 @@ or corrupted sync can never break playback. Types live in
       "name": "Default",
       "loop": true,
       "defaultImageDurationSeconds": 10,
+      "playbackOrderMode": "manual_order", // manual_order | alphabetical | random | random_with_priority_rules
       "items": [
         {
           "id": "item_…",
@@ -49,6 +50,21 @@ or corrupted sync can never break playback. Types live in
           "durationSeconds": null, // null → image inherits playlist default, video plays natural length
           "fitMode": null, // null → platform default "contain"
           "enabled": true,
+          "source": "folder", // "item" (direct) or "folder" (expanded from a dynamic folder entry)
+          "sourceFolderId": "fld_…", // display/debug only when source = "folder"
+          "sourceFolderPath": "Campaigns / Summer",
+        },
+      ],
+      // Present and active only when playbackOrderMode = random_with_priority_rules.
+      "priorityRules": [
+        {
+          "id": "rule_…",
+          "name": "Sponsor Ads",
+          "intervalCount": 5, // play one rule item after every 5 normal items
+          "selectionMode": "rotate", // rotate | random
+          "position": 0, // deterministic tie-break order
+          "createdAt": "2026-06-11T09:00:00.000Z",
+          "mediaIds": ["med_…", "med_…"], // assignments resolved to ready media at sync time
         },
       ],
     },
@@ -75,12 +91,31 @@ or corrupted sync can never break playback. Types live in
 Only media actually referenced by the device's playlists/schedules/emergency is
 included, so the media list doubles as the cache's desired contents.
 
+### Server-side resolution (v2)
+
+Dynamic folder entries and priority-rule assignments are **resolved on the server
+at sync time** into concrete, ready-media ids before the manifest is sent. The
+device therefore never needs folder data or backend access to know what to play —
+it works entirely from the manifest, online or offline:
+
+- A folder playlist entry expands into one manifest item per matching ready media
+  (after include-subfolders and media-type/orientation filters), tagged with
+  `source: "folder"` plus the folder id/path for display. Direct items are
+  `source: "item"` (or the field is absent, for v1 compatibility).
+- `priorityRules[].mediaIds` are the rule's assignments expanded to ready media.
+- The `playbackOrderMode` is passed through; the device applies it locally (see
+  below). Media that is deleted, disabled, or not yet `ready` is excluded at
+  resolution time, so the device pool only ever contains playable media.
+
 ## Versioning
 
-- **`protocolVersion`** — incremented only for incompatible shape changes. An
-  agent that sees a higher protocol version than it understands reports a sync
-  error instead of guessing; old agents keep playing their cached content until
-  they are updated.
+- **`protocolVersion`** — incremented only for incompatible shape changes;
+  currently **2** (`SYNC_PROTOCOL_VERSION`). v2 adds `playbackOrderMode`, folder
+  `source` metadata on items, and `priorityRules`; all are additive, so a v2
+  agent reads a v1 manifest unchanged (missing `playbackOrderMode` means
+  `manual_order`). An agent that sees a higher protocol version than it
+  understands reports a sync error instead of guessing; older agents keep playing
+  their cached content until they are updated.
 - **`version`** — a deterministic hash of the manifest content. The server bumps
   it whenever anything affecting this device changes (settings, playlist edits,
   schedule changes, emergency start/stop, media replacement). The agent compares
@@ -137,6 +172,29 @@ a "downloading" status rather than blocking the rest of the playlist; they join
 playback as soon as their download lands. Images default to the playlist's
 `defaultImageDurationSeconds` (10s), videos to their natural duration; `fitMode`
 defaults to `contain`.
+
+### Playback order (offline)
+
+The order within a playlist is computed on-device from `playbackOrderMode` by the
+shared `PlaybackQueueEngine` (`@signage/shared`), so every mode works with zero
+connectivity:
+
+- **`manual_order`** — manifest item order (folder entries already expanded in
+  place, alphabetically).
+- **`alphabetical`** — case-insensitive natural sort of the resolved pool
+  (`file2` before `file10`); deterministic.
+- **`random`** — shuffled with no immediate repeats; reshuffles each time the
+  pool is exhausted.
+- **`random_with_priority_rules`** — random normal playback with a priority item
+  inserted after every `intervalCount` normal items. `rotate` cycles a rule's
+  media in order; `random` picks from it. Multiple rules triggering at once are
+  ordered deterministically (lowest interval, then position, then creation time),
+  and priority insertions never starve normal content.
+
+The same engine drives the dashboard's resolved-preview samples (with a seeded
+RNG), so previews match device behaviour. Playback events are queued locally with
+client-generated ids while offline and flushed on reconnect; the ids make event
+ingestion idempotent so plays are never double-counted.
 
 ## Failure-mode summary
 

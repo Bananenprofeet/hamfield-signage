@@ -126,6 +126,10 @@ export class ApiClient {
       eventType: string;
       mediaAssetId: string | null;
       playlistId: string | null;
+      clientEventId?: string | null;
+      playedAs?: string | null;
+      priorityRuleId?: string | null;
+      durationSeconds?: number | null;
       detail?: Record<string, unknown>;
       occurredAt: string;
     }>,

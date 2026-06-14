@@ -16,6 +16,11 @@ export interface BufferedEvent {
   eventType: string;
   mediaAssetId: string | null;
   playlistId: string | null;
+  /** Generated when buffering; lets the backend deduplicate resubmissions. */
+  clientEventId: string | null;
+  playedAs: string | null;
+  priorityRuleId: string | null;
+  durationSeconds: number | null;
   detail: string | null;
   occurredAt: string;
 }
@@ -61,6 +66,27 @@ export class AgentDb {
         occurred_at TEXT NOT NULL
       );
     `);
+    this.migrateEventBuffer();
+  }
+
+  /** Adds v2 event columns to databases created by older agent versions. */
+  private migrateEventBuffer(): void {
+    const columns = new Set(
+      (this.db.prepare('PRAGMA table_info(event_buffer)').all() as Array<{ name: string }>).map(
+        (c) => c.name,
+      ),
+    );
+    const wanted: Array<[string, string]> = [
+      ['client_event_id', 'TEXT'],
+      ['played_as', 'TEXT'],
+      ['priority_rule_id', 'TEXT'],
+      ['duration_seconds', 'REAL'],
+    ];
+    for (const [name, type] of wanted) {
+      if (!columns.has(name)) {
+        this.db.exec(`ALTER TABLE event_buffer ADD COLUMN ${name} ${type}`);
+      }
+    }
   }
 
   // ---------- kv ----------
@@ -207,17 +233,27 @@ export class AgentDb {
     eventType: string;
     mediaAssetId: string | null;
     playlistId: string | null;
+    clientEventId?: string | null;
+    playedAs?: string | null;
+    priorityRuleId?: string | null;
+    durationSeconds?: number | null;
     detail?: Record<string, unknown>;
     occurredAt: string;
   }): void {
     this.db
       .prepare(
-        'INSERT INTO event_buffer (event_type, media_asset_id, playlist_id, detail, occurred_at) VALUES (?, ?, ?, ?, ?)',
+        `INSERT INTO event_buffer
+           (event_type, media_asset_id, playlist_id, client_event_id, played_as, priority_rule_id, duration_seconds, detail, occurred_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         event.eventType,
         event.mediaAssetId,
         event.playlistId,
+        event.clientEventId ?? null,
+        event.playedAs ?? null,
+        event.priorityRuleId ?? null,
+        event.durationSeconds ?? null,
         event.detail ? JSON.stringify(event.detail) : null,
         event.occurredAt,
       );
@@ -229,7 +265,10 @@ export class AgentDb {
   takeEvents(limit: number): BufferedEvent[] {
     return this.db
       .prepare(
-        'SELECT id, event_type AS eventType, media_asset_id AS mediaAssetId, playlist_id AS playlistId, detail, occurred_at AS occurredAt FROM event_buffer ORDER BY id ASC LIMIT ?',
+        `SELECT id, event_type AS eventType, media_asset_id AS mediaAssetId, playlist_id AS playlistId,
+                client_event_id AS clientEventId, played_as AS playedAs, priority_rule_id AS priorityRuleId,
+                duration_seconds AS durationSeconds, detail, occurred_at AS occurredAt
+         FROM event_buffer ORDER BY id ASC LIMIT ?`,
       )
       .all(limit) as BufferedEvent[];
   }

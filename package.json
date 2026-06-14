@@ -21,6 +21,8 @@
     "dev:web": "pnpm --filter @signage/web dev",
     "dev:worker": "pnpm --filter @signage/worker dev",
     "dev:mock-device": "pnpm --filter @signage/mock-device dev",
+    "app:create-superadmin": "pnpm --filter @signage/api create-superadmin",
+    "app:reset-superadmin-password": "pnpm --filter @signage/api reset-superadmin-password",
     "dev:infra": "docker compose up -d postgres redis minio minio-setup",
     "dev:up": "docker compose up -d",
     "dev:down": "docker compose down"
