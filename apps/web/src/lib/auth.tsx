@@ -18,9 +18,15 @@ interface AuthContextValue {
   orgId: string | null;
   org: OrganizationDto | null;
   loading: boolean;
+  /** True for platform superadmins (User.globalRole === 'superadmin'). */
+  isSuperadmin: boolean;
+  /** True when a superadmin is acting without an active organization. */
+  isSystemContext: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
   switchOrg: (orgId: string) => void;
+  /** Clears the active organization (returns a superadmin to system context). */
+  enterSystemContext: () => void;
   refreshOrgs: () => Promise<void>;
   /** Re-fetches /auth/me, e.g. after a forced password change. */
   refreshUser: () => Promise<void>;
@@ -38,9 +44,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(response.user);
     setOrganizations(response.organizations);
     setOrgId((current) => {
-      const valid = response.organizations.some((o) => o.id === current);
-      const next = valid ? current : (response.organizations[0]?.id ?? null);
+      const valid = current != null && response.organizations.some((o) => o.id === current);
+      // Superadmins default to system context; regular users auto-select their
+      // (single or first) organization so they land on real data immediately.
+      const next = valid
+        ? current
+        : response.user.globalRole === 'superadmin'
+          ? null
+          : (response.organizations[0]?.id ?? null);
       if (next) localStorage.setItem(ORG_KEY, next);
+      else localStorage.removeItem(ORG_KEY);
       return next;
     });
   }, []);
@@ -77,6 +90,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setOrgId(id);
   }, []);
 
+  const enterSystemContext = useCallback(() => {
+    localStorage.removeItem(ORG_KEY);
+    setOrgId(null);
+  }, []);
+
   const refreshOrgs = useCallback(async () => {
     const orgs = await api.get<OrganizationDto[]>('/orgs');
     setOrganizations(orgs);
@@ -87,6 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     apply(response);
   }, [apply]);
 
+  const isSuperadmin = user?.globalRole === 'superadmin';
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
@@ -94,13 +113,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       orgId,
       org: organizations.find((o) => o.id === orgId) ?? null,
       loading,
+      isSuperadmin,
+      isSystemContext: isSuperadmin && !orgId,
       login,
       logout,
       switchOrg,
+      enterSystemContext,
       refreshOrgs,
       refreshUser,
     }),
-    [user, organizations, orgId, loading, login, logout, switchOrg, refreshOrgs, refreshUser],
+    [
+      user,
+      organizations,
+      orgId,
+      loading,
+      isSuperadmin,
+      login,
+      logout,
+      switchOrg,
+      enterSystemContext,
+      refreshOrgs,
+      refreshUser,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

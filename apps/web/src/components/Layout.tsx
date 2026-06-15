@@ -1,82 +1,72 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../lib/auth';
+import { OrganizationSwitcher } from './OrganizationSwitcher';
+import { ErrorBoundary } from './ErrorBoundary';
 
-const NAV_ITEMS = [
+const ORG_NAV_ITEMS = [
   { to: '/devices', label: 'Screens', icon: '🖥' },
   { to: '/monitoring', label: 'Monitoring', icon: '📈' },
   { to: '/media', label: 'Media', icon: '🖼' },
   { to: '/playlists', label: 'Playlists', icon: '🎞' },
   { to: '/schedules', label: 'Schedules', icon: '🗓' },
   { to: '/emergency', label: 'Emergency', icon: '🚨' },
-  { to: '/settings', label: 'Settings', icon: '⚙️' },
 ];
 
+const navClass = ({ isActive }: { isActive: boolean }) =>
+  `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+    isActive ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-800/60'
+  }`;
+
 export function Layout() {
-  const { user, organizations, orgId, switchOrg, logout } = useAuth();
+  const { user, orgId, isSystemContext, logout } = useAuth();
+  const location = useLocation();
 
   return (
     <div className="flex min-h-screen">
-      <aside className="flex w-56 shrink-0 flex-col bg-slate-900 text-slate-200">
-        <div className="px-4 py-5">
+      <aside className="flex w-60 shrink-0 flex-col bg-slate-900 text-slate-200">
+        <div className="px-4 py-4">
           <div className="text-lg font-bold text-white">Signage</div>
           <div className="text-xs text-slate-400">Digital signage console</div>
         </div>
 
-        {organizations.length > 0 ? (
-          <div className="px-3 pb-3">
-            <select
-              value={orgId ?? ''}
-              onChange={(e) => switchOrg(e.target.value)}
-              className="w-full rounded-md border border-slate-700 bg-slate-800 px-2 py-1.5 text-sm text-slate-100"
-            >
-              {organizations.map((org) => (
-                <option key={org.id} value={org.id}>
-                  {org.name}
-                </option>
-              ))}
-            </select>
+        <OrganizationSwitcher />
+
+        {isSystemContext ? (
+          <div className="mx-3 mb-2 rounded-md border border-amber-700/40 bg-amber-900/20 px-2.5 py-2 text-xs text-amber-200">
+            You are in <span className="font-semibold">System / Superadmin</span> context. Select an
+            organization to manage its screens and media.
           </div>
         ) : null}
 
         <nav className="flex-1 space-y-0.5 px-2">
-          {NAV_ITEMS.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                  isActive ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-800/60'
-                }`
-              }
-            >
-              <span aria-hidden>{item.icon}</span>
-              {item.label}
-            </NavLink>
-          ))}
+          {/* Org-scoped navigation is hidden in superadmin system context. */}
+          {!isSystemContext
+            ? ORG_NAV_ITEMS.map((item) => (
+                <NavLink key={item.to} to={item.to} className={navClass}>
+                  <span aria-hidden>{item.icon}</span>
+                  {item.label}
+                </NavLink>
+              ))
+            : null}
+
+          <NavLink to="/settings" className={navClass}>
+            <span aria-hidden>⚙️</span>
+            Settings
+          </NavLink>
 
           {user?.globalRole === 'superadmin' ? (
             <>
               <div className="px-3 pb-1 pt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">
                 Superadmin
               </div>
-              {[
-                { to: '/superadmin', label: 'Companies', icon: '🏢', end: true },
-                { to: '/superadmin/users', label: 'Users', icon: '👥', end: false },
-              ].map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  className={({ isActive }) =>
-                    `flex items-center gap-2.5 rounded-md px-3 py-2 text-sm font-medium transition-colors ${
-                      isActive ? 'bg-slate-800 text-white' : 'text-slate-300 hover:bg-slate-800/60'
-                    }`
-                  }
-                >
-                  <span aria-hidden>{item.icon}</span>
-                  {item.label}
-                </NavLink>
-              ))}
+              <NavLink to="/superadmin" end className={navClass}>
+                <span aria-hidden>🏢</span>
+                Companies
+              </NavLink>
+              <NavLink to="/superadmin/users" className={navClass}>
+                <span aria-hidden>👥</span>
+                Users
+              </NavLink>
             </>
           ) : null}
         </nav>
@@ -94,7 +84,12 @@ export function Layout() {
       </aside>
 
       <main className="min-w-0 flex-1 p-6">
-        <Outlet />
+        {/* Remount on org switch / navigation: clears stale data and any error. */}
+        <ErrorBoundary resetKey={`${orgId ?? 'system'}:${location.pathname}`}>
+          <div key={orgId ?? 'system'}>
+            <Outlet />
+          </div>
+        </ErrorBoundary>
       </main>
     </div>
   );

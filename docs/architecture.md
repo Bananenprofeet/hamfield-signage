@@ -103,6 +103,37 @@ bytes (never trusting the client mime type), sanitized object names, media serve
 to devices only after device-token auth, and dashboard media URLs presigned with
 short expiry.
 
+### Multi-organization context (dashboard)
+
+A user can belong to many organizations (`OrganizationMember`). `/auth/login` and
+`/auth/me` return every organization the caller can see, each with the caller's
+role and a presigned `logoUrl`. The dashboard keeps a single **active
+organization** in an auth context (persisted in `localStorage` under
+`signage.orgId`); all org-scoped pages and API calls use it, and switching orgs
+remounts the page subtree so no stale data flashes.
+
+- Regular users auto-select their (single or first) organization. With several,
+  the sidebar **organization switcher** (logo, name, role) makes switching obvious.
+  Users with none see a clear "not assigned to any organization" state.
+- **Superadmins** default to **System / Superadmin context** (no active org): the
+  `/superadmin/*` area is available and org-scoped navigation is hidden. They can
+  open any organization from the switcher or the companies list, and return to
+  system context at any time. Org-scoped pages render a guarded no-org state
+  rather than blank, and a top-level error boundary keeps render errors from
+  blanking the screen.
+
+### Organization branding (logos)
+
+Logos live in object storage (S3/MinIO) like media — only the storage key and
+metadata (`logoStorageKey`, `logoMimeType`, `logoOriginalFilename`,
+`logoSizeBytes`, `logoUpdatedAt`) are on the `Organization` row. Uploads accept
+SVG/PNG/JPG/JPEG up to 2 MB, validated by content. SVGs are scanned and rejected
+if scriptable or network-active (`<script>`, `on*` handlers, `javascript:`,
+`<foreignObject>`, DOCTYPE/ENTITY, external refs); logos are only rendered via
+`<img src>`, never inlined, so they cannot execute script. Upload/delete requires
+admin/owner (or superadmin). Delivery reuses presigned download URLs (≈24 h,
+refreshed on each `/auth/me`).
+
 ## Media pipeline
 
 1. Dashboard uploads a file → API validates (size, magic bytes), stores the original

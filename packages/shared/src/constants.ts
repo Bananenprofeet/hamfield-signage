@@ -24,3 +24,11 @@ export const POLL_FALLBACK_INTERVAL_SECONDS = 30;
 export const SYNC_PROTOCOL_VERSION = 2;
 
 export const API_PREFIX = '/api/v1';
+
+// ---------- Organization logos ----------
+/** Maximum organization logo upload size (2 MB). */
+export const ORG_LOGO_MAX_BYTES = 2 * 1024 * 1024;
+/** MIME types accepted for organization logos. */
+export const ORG_LOGO_MIME_TYPES = ['image/svg+xml', 'image/png', 'image/jpeg'] as const;
+/** `accept` attribute value for the logo file picker. */
+export const ORG_LOGO_ACCEPT = '.svg,.png,.jpg,.jpeg,image/svg+xml,image/png,image/jpeg';

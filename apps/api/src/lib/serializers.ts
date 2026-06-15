@@ -32,6 +32,7 @@ import type {
   UserDto,
 } from '@signage/shared';
 import { OFFLINE_THRESHOLD_SECONDS } from '@signage/shared';
+import { presignDownload } from './s3';
 
 const num = (v: bigint | number | null | undefined): number | null =>
   v == null ? null : Number(v);
@@ -50,7 +51,11 @@ export function serializeUser(user: User): UserDto {
   };
 }
 
-export function serializeOrg(org: Organization, role?: string): OrganizationDto {
+export function serializeOrg(
+  org: Organization,
+  role?: string,
+  extras?: { logoUrl?: string | null },
+): OrganizationDto {
   return {
     id: org.id,
     name: org.name,
@@ -60,8 +65,21 @@ export function serializeOrg(org: Organization, role?: string): OrganizationDto 
     maxDevices: org.maxDevices,
     maxStorageGb: org.maxStorageGb,
     role: role as OrganizationDto['role'],
+    logoUrl: extras?.logoUrl ?? null,
+    logoMimeType: org.logoMimeType,
+    logoUpdatedAt: iso(org.logoUpdatedAt),
     createdAt: org.createdAt.toISOString(),
   };
+}
+
+/**
+ * Presigns a logo download URL (24h, refreshed on every /auth/me) or null when
+ * the organization has no logo. Centralised so every org response is consistent.
+ */
+export async function orgLogoUrl(
+  org: Pick<Organization, 'logoStorageKey'>,
+): Promise<string | null> {
+  return org.logoStorageKey ? presignDownload(org.logoStorageKey, 24 * 60 * 60) : null;
 }
 
 export function serializeFolder(

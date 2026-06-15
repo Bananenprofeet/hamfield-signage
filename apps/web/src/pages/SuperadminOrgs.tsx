@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { SuperadminOrganizationDto } from '@signage/shared';
 import {
   Badge,
@@ -16,11 +17,18 @@ import {
 } from '../components/ui';
 import { api } from '../lib/api';
 import { useAuth } from '../lib/auth';
+import { OrganizationLogo } from '../components/OrganizationLogo';
 import { formatBytes } from '../lib/format';
 import { useAction, useApi } from '../lib/hooks';
 
 export function SuperadminOrgsPage() {
-  const { refreshOrgs } = useAuth();
+  const { refreshOrgs, switchOrg } = useAuth();
+  const navigate = useNavigate();
+
+  const openOrg = (org: SuperadminOrganizationDto) => {
+    switchOrg(org.id);
+    navigate('/devices');
+  };
   const orgs = useApi(() => api.get<SuperadminOrganizationDto[]>('/superadmin/organizations'), []);
   const [showCreate, setShowCreate] = useState(false);
   const [editing, setEditing] = useState<SuperadminOrganizationDto | null>(null);
@@ -72,8 +80,13 @@ export function SuperadminOrgsPage() {
               {orgs.data.map((org) => (
                 <tr key={org.id}>
                   <Td>
-                    <div className="font-medium text-slate-900">{org.name}</div>
-                    <div className="text-xs text-slate-400">{org.slug}</div>
+                    <div className="flex items-center gap-2.5">
+                      <OrganizationLogo org={org} size={32} className="border border-slate-200" />
+                      <div>
+                        <div className="font-medium text-slate-900">{org.name}</div>
+                        <div className="text-xs text-slate-400">{org.slug}</div>
+                      </div>
+                    </div>
                   </Td>
                   <Td>
                     {org.status === 'active' ? (
@@ -92,6 +105,9 @@ export function SuperadminOrgsPage() {
                   <Td>{formatBytes(org.storageUsedBytes)}</Td>
                   <Td>
                     <div className="flex gap-1">
+                      <Button variant="ghost" small onClick={() => openOrg(org)}>
+                        Open
+                      </Button>
                       <Button variant="ghost" small onClick={() => setEditing(org)}>
                         Edit
                       </Button>

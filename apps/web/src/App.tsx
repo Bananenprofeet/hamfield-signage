@@ -2,7 +2,8 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { Layout } from './components/Layout';
 import { useAuth } from './lib/auth';
-import { EmptyState, Spinner } from './components/ui';
+import { RequireOrganization } from './components/RequireOrganization';
+import { Spinner } from './components/ui';
 import { LoginPage } from './pages/Login';
 import { ChangePasswordPage } from './pages/ChangePassword';
 import { DevicesPage } from './pages/Devices';
@@ -21,20 +22,7 @@ import { SuperadminUsersPage } from './pages/SuperadminUsers';
 
 /** Org-scoped pages need a selected organization (superadmins may have none). */
 function OrgRoute({ children }: { children: ReactNode }) {
-  const { orgId, user } = useAuth();
-  if (!orgId) {
-    return (
-      <EmptyState
-        title="No organization selected"
-        hint={
-          user?.globalRole === 'superadmin'
-            ? 'Create an organization in the Superadmin section, or add yourself as a member of one.'
-            : 'Your account is not a member of any organization yet — ask your administrator.'
-        }
-      />
-    );
-  }
-  return <>{children}</>;
+  return <RequireOrganization>{children}</RequireOrganization>;
 }
 
 function SuperadminRoute({ children }: { children: ReactNode }) {

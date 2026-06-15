@@ -13,22 +13,12 @@ import {
   Spinner,
 } from '../components/ui';
 import { api } from '../lib/api';
-import { useAuth, useOrgId } from '../lib/auth';
+import { useAuth } from '../lib/auth';
+import { NoOrganizationState } from '../components/RequireOrganization';
 import { useAction, useApi } from '../lib/hooks';
 
 export function SettingsPage() {
-  const { user, org } = useAuth();
-  const orgId = useOrgId();
-  const groups = useApi(() => api.get<DeviceGroupDto[]>(`/orgs/${orgId}/device-groups`), [orgId]);
-  const [editing, setEditing] = useState<DeviceGroupDto | 'new' | null>(null);
-
-  const remove = useAction(async (group: DeviceGroupDto) => {
-    if (!window.confirm(`Delete group "${group.name}"? Schedules targeting it lose this target.`)) {
-      return;
-    }
-    await api.delete(`/orgs/${orgId}/device-groups/${group.id}`);
-    groups.reload();
-  });
+  const { user, org, orgId } = useAuth();
 
   return (
     <div>
@@ -47,7 +37,7 @@ export function SettingsPage() {
             </div>
             <div className="flex justify-between">
               <dt className="text-slate-500">Organization</dt>
-              <dd className="font-medium text-slate-800">{org?.name}</dd>
+              <dd className="font-medium text-slate-800">{org?.name ?? '—'}</dd>
             </div>
             <div className="flex justify-between">
               <dt className="text-slate-500">Your role</dt>
@@ -56,58 +46,80 @@ export function SettingsPage() {
               </dd>
             </div>
           </dl>
-          <div className="mt-4">
-            <Link
-              to="/settings/organization"
-              className="text-sm font-medium text-blue-600 hover:underline"
-            >
-              Organization settings &amp; members →
-            </Link>
-          </div>
+          {orgId ? (
+            <div className="mt-4">
+              <Link
+                to="/settings/organization"
+                className="text-sm font-medium text-blue-600 hover:underline"
+              >
+                Organization settings, logo &amp; members →
+              </Link>
+            </div>
+          ) : null}
         </Card>
 
-        <Card
-          title="Screen groups"
-          actions={
-            <Button small onClick={() => setEditing('new')}>
-              New group
-            </Button>
-          }
-        >
-          <ErrorNote message={groups.error ?? remove.error} />
-          {groups.loading && !groups.data ? <Spinner /> : null}
-          {groups.data && groups.data.length === 0 ? (
-            <p className="text-sm text-slate-500">
-              No groups yet. Groups let schedules and emergency overrides target many screens at
-              once.
-            </p>
-          ) : null}
-          <ul className="divide-y divide-slate-100">
-            {(groups.data ?? []).map((group) => (
-              <li key={group.id} className="flex items-center gap-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-slate-800">{group.name}</p>
-                  <p className="text-xs text-slate-500">
-                    {group.deviceCount} screens
-                    {group.description ? ` · ${group.description}` : ''}
-                  </p>
-                </div>
-                <Button variant="secondary" small onClick={() => setEditing(group)}>
-                  Edit
-                </Button>
-                <Button
-                  variant="ghost"
-                  small
-                  onClick={() => remove.run(group)}
-                  disabled={remove.busy}
-                >
-                  Delete
-                </Button>
-              </li>
-            ))}
-          </ul>
-        </Card>
+        {/* Screen groups are organization-scoped; without an active org we show
+            the no-organization state instead of crashing (the old blank-screen bug). */}
+        {orgId ? <ScreenGroupsCard orgId={orgId} /> : <NoOrganizationState what="screen groups" />}
       </div>
+    </div>
+  );
+}
+
+function ScreenGroupsCard({ orgId }: { orgId: string }) {
+  const groups = useApi(() => api.get<DeviceGroupDto[]>(`/orgs/${orgId}/device-groups`), [orgId]);
+  const [editing, setEditing] = useState<DeviceGroupDto | 'new' | null>(null);
+
+  const remove = useAction(async (group: DeviceGroupDto) => {
+    if (!window.confirm(`Delete group "${group.name}"? Schedules targeting it lose this target.`)) {
+      return;
+    }
+    await api.delete(`/orgs/${orgId}/device-groups/${group.id}`);
+    groups.reload();
+  });
+
+  return (
+    <>
+      <Card
+        title="Screen groups"
+        actions={
+          <Button small onClick={() => setEditing('new')}>
+            New group
+          </Button>
+        }
+      >
+        <ErrorNote message={groups.error ?? remove.error} />
+        {groups.loading && !groups.data ? <Spinner /> : null}
+        {groups.data && groups.data.length === 0 ? (
+          <p className="text-sm text-slate-500">
+            No groups yet. Groups let schedules and emergency overrides target many screens at once.
+          </p>
+        ) : null}
+        <ul className="divide-y divide-slate-100">
+          {(groups.data ?? []).map((group) => (
+            <li key={group.id} className="flex items-center gap-3 py-2.5">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-slate-800">{group.name}</p>
+                <p className="text-xs text-slate-500">
+                  {group.deviceCount} screens
+                  {group.description ? ` · ${group.description}` : ''}
+                </p>
+              </div>
+              <Button variant="secondary" small onClick={() => setEditing(group)}>
+                Edit
+              </Button>
+              <Button
+                variant="ghost"
+                small
+                onClick={() => remove.run(group)}
+                disabled={remove.busy}
+              >
+                Delete
+              </Button>
+            </li>
+          ))}
+        </ul>
+      </Card>
 
       {editing ? (
         <GroupModal
@@ -120,7 +132,7 @@ export function SettingsPage() {
           }}
         />
       ) : null}
-    </div>
+    </>
   );
 }
 
