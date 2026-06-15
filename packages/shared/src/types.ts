@@ -12,6 +12,7 @@ import type {
   PlaybackOrderMode,
   PlayedAs,
   PlaylistItemType,
+  PositionMode,
   PrioritySelectionMode,
   ProcessingStatus,
   SyncStatus,
@@ -155,6 +156,8 @@ export interface PlaylistItemDto {
   position: number;
   durationSeconds: number | null;
   fitMode: FitMode | null;
+  backgroundColor: string | null;
+  positionMode: PositionMode | null;
   enabled: boolean;
   includeSubfolders: boolean;
   filterMediaType: MediaType | null;
@@ -194,6 +197,9 @@ export interface PlaylistDto {
   loop: boolean;
   defaultImageDurationSeconds: number;
   playbackOrderMode: PlaybackOrderMode;
+  defaultFitMode: FitMode | null;
+  defaultBackgroundColor: string | null;
+  defaultPositionMode: PositionMode | null;
   clonedFromPlaylistId: string | null;
   clonedAt: string | null;
   itemCount: number;
@@ -222,6 +228,12 @@ export interface ResolvedPreviewItem {
   /** Folder path or priority rule name for display. */
   sourceName: string | null;
   thumbnailUrl?: string | null;
+  /** Resolved display settings devices will use (item override → playlist default → platform). */
+  effectiveFitMode: FitMode;
+  effectiveBackgroundColor: string;
+  effectivePositionMode: PositionMode;
+  /** Where the effective fit mode came from. */
+  displaySource: 'item' | 'playlist_default' | 'platform_default';
 }
 
 export interface PreviewWarning {
@@ -375,6 +387,10 @@ export interface EmergencyOverrideDto {
   appliesToAll: boolean;
   deviceIds: string[];
   groupIds: string[];
+  /** Display settings for single-media overrides (null for playlist overrides). */
+  fitMode: FitMode | null;
+  backgroundColor: string | null;
+  positionMode: PositionMode | null;
   startedAt: string;
   stoppedAt: string | null;
   createdAt: string;

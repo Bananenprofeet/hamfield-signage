@@ -1,5 +1,10 @@
 import { resolveActiveContent } from '@signage/scheduler';
-import type { PlayerPriorityRule, PlayerState, PlayerStateItem } from '@signage/shared';
+import {
+  resolveDisplaySettings,
+  type PlayerPriorityRule,
+  type PlayerState,
+  type PlayerStateItem,
+} from '@signage/shared';
 import { canonicalJson, type ManifestPlaylist, type SyncManifest } from '@signage/sync-protocol';
 
 export interface StateContext {
@@ -63,13 +68,20 @@ export function computePlayerState(
   if (resolution.source === 'emergency' && resolution.mediaAssetId) {
     const media = mediaById.get(resolution.mediaAssetId);
     if (media && ctx.cachedMediaIds.has(media.id)) {
+      const display = resolveDisplaySettings({
+        fitMode: manifest.emergency.fitMode,
+        backgroundColor: manifest.emergency.backgroundColor,
+        positionMode: manifest.emergency.positionMode,
+      });
       const item: PlayerStateItem = {
         id: `emergency-${media.id}`,
         mediaId: media.id,
         mediaType: media.type,
         url: `/media/${media.id}`,
         durationSeconds: media.type === 'image' ? 86400 : null,
-        fitMode: 'contain',
+        fitMode: display.fitMode,
+        backgroundColor: display.backgroundColor,
+        positionMode: display.positionMode,
         width: media.width,
         height: media.height,
         name: media.name,
@@ -142,10 +154,21 @@ function buildPlaylistItems(
   cachedMediaIds: Set<string>,
 ): PlayerStateItem[] {
   const items: PlayerStateItem[] = [];
+  const defaults = playlistDisplayDefaults(playlist);
   for (const item of playlist.items) {
     if (!item.enabled) continue;
     const media = mediaById.get(item.mediaId);
     if (!media || !cachedMediaIds.has(media.id)) continue;
+    // Manifest items already carry resolved display values; resolve again
+    // defensively so pre-display manifests (missing fields) fall back safely.
+    const display = resolveDisplaySettings(
+      {
+        fitMode: item.fitMode,
+        backgroundColor: item.backgroundColor,
+        positionMode: item.positionMode,
+      },
+      defaults,
+    );
     items.push({
       id: item.id,
       mediaId: media.id,
@@ -154,7 +177,9 @@ function buildPlaylistItems(
       durationSeconds:
         item.durationSeconds ??
         (media.type === 'image' ? playlist.defaultImageDurationSeconds : null),
-      fitMode: item.fitMode ?? 'contain',
+      fitMode: display.fitMode,
+      backgroundColor: display.backgroundColor,
+      positionMode: display.positionMode,
       width: media.width,
       height: media.height,
       name: media.name,
@@ -163,12 +188,22 @@ function buildPlaylistItems(
   return items;
 }
 
+/** Playlist-level display defaults from the manifest (for items without overrides). */
+function playlistDisplayDefaults(playlist: ManifestPlaylist) {
+  return {
+    defaultFitMode: playlist.defaultFitMode,
+    defaultBackgroundColor: playlist.defaultBackgroundColor,
+    defaultPositionMode: playlist.defaultPositionMode,
+  };
+}
+
 function buildPriorityRules(
   playlist: ManifestPlaylist,
   mediaById: Map<string, SyncManifest['media'][number]>,
   cachedMediaIds: Set<string>,
 ): PlayerPriorityRule[] {
   const rules: PlayerPriorityRule[] = [];
+  const display = resolveDisplaySettings(null, playlistDisplayDefaults(playlist));
   for (const rule of playlist.priorityRules ?? []) {
     const items: PlayerStateItem[] = [];
     for (const mediaId of rule.mediaIds) {
@@ -180,7 +215,9 @@ function buildPriorityRules(
         mediaType: media.type,
         url: `/media/${media.id}`,
         durationSeconds: media.type === 'image' ? playlist.defaultImageDurationSeconds : null,
-        fitMode: 'contain',
+        fitMode: display.fitMode,
+        backgroundColor: display.backgroundColor,
+        positionMode: display.positionMode,
         width: media.width,
         height: media.height,
         name: media.name,

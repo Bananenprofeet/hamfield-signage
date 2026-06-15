@@ -131,16 +131,25 @@ by id so they survive renames/moves.
 
 ## Playlists
 
-| Method | Path                                                  | Notes                                                                                                                                                                                            |
-| ------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| GET    | `/orgs/:orgId/playlists`                              | With item counts.                                                                                                                                                                                |
-| POST   | `/orgs/:orgId/playlists`                              | `{ name, description?, loop?, defaultImageDurationSeconds?, playbackOrderMode?, items? }`.                                                                                                       |
-| GET    | `/orgs/:orgId/playlists/:playlistId`                  | Playlist + ordered items (media or folder entries) + media summaries with thumbnails.                                                                                                            |
-| PATCH  | `/orgs/:orgId/playlists/:playlistId`                  | Update name/description/loop/default duration/`playbackOrderMode`.                                                                                                                               |
-| PUT    | `/orgs/:orgId/playlists/:playlistId/items`            | Replace the full ordered list. Each item is `{ type: media\|folder, mediaAssetId?, folderId?, durationSeconds?, fitMode?, enabled?, includeSubfolders?, filterMediaType?, filterOrientation? }`. |
-| POST   | `/orgs/:orgId/playlists/:playlistId/clone`            | `{ name? }` — duplicate items, folder entries, and priority rules (not schedules/history). Defaults to "Copy of …". → `201`.                                                                     |
-| GET    | `/orgs/:orgId/playlists/:playlistId/resolved-preview` | What devices will receive after resolution. Query `seed`, `sampleSize`. Returns resolved items (with `source`), duration, a sample sequence for random modes, and warnings.                      |
-| DELETE | `/orgs/:orgId/playlists/:playlistId`                  | Blocked while used as a device default or in schedules. Soft delete.                                                                                                                             |
+| Method | Path                                                  | Notes                                                                                                                                                                                                                                           |
+| ------ | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/orgs/:orgId/playlists`                              | With item counts.                                                                                                                                                                                                                               |
+| POST   | `/orgs/:orgId/playlists`                              | `{ name, description?, loop?, defaultImageDurationSeconds?, playbackOrderMode?, items? }`.                                                                                                                                                      |
+| GET    | `/orgs/:orgId/playlists/:playlistId`                  | Playlist + ordered items (media or folder entries) + media summaries with thumbnails.                                                                                                                                                           |
+| PATCH  | `/orgs/:orgId/playlists/:playlistId`                  | Update name/description/loop/default duration/`playbackOrderMode` and display defaults `defaultFitMode`, `defaultBackgroundColor`, `defaultPositionMode`.                                                                                       |
+| PUT    | `/orgs/:orgId/playlists/:playlistId/items`            | Replace the full ordered list. Each item is `{ type: media\|folder, mediaAssetId?, folderId?, durationSeconds?, fitMode?, backgroundColor?, positionMode?, enabled?, includeSubfolders?, filterMediaType?, filterOrientation? }`.               |
+| POST   | `/orgs/:orgId/playlists/:playlistId/clone`            | `{ name? }` — duplicate items, folder entries, and priority rules (not schedules/history). Defaults to "Copy of …". → `201`.                                                                                                                    |
+| GET    | `/orgs/:orgId/playlists/:playlistId/resolved-preview` | What devices will receive after resolution. Query `seed`, `sampleSize`. Resolved items also include `effectiveFitMode`, `effectiveBackgroundColor`, `effectivePositionMode` and `displaySource` (`item`/`playlist_default`/`platform_default`). |
+| DELETE | `/orgs/:orgId/playlists/:playlistId`                  | Blocked while used as a device default or in schedules. Soft delete.                                                                                                                                                                            |
+
+**Display settings.** `fitMode` is one of `contain` (Fit to screen), `cover`
+(Fill / crop), `stretch`, `original`, `scale_down` (scale down only).
+`positionMode` is `center`/`top`/`bottom`/`left`/`right`/`top_left`/`top_right`/
+`bottom_left`/`bottom_right`. `backgroundColor` must be a `#RGB`/`#RRGGBB` hex
+color (normalized to `#rrggbb`). Invalid fit modes, position modes or colors are
+rejected with `400`. Item values override playlist defaults, which override the
+platform defaults (`contain` / `#000000` / `center`). Single-media emergency
+overrides accept the same `fitMode`/`backgroundColor`/`positionMode` fields.
 
 `playbackOrderMode` is one of `manual_order` (default), `alphabetical`, `random`,
 `random_with_priority_rules`. Folder entries resolve dynamically: media added to /

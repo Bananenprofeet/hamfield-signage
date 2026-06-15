@@ -1,5 +1,5 @@
 import type { PrismaClient } from '@signage/database';
-import { API_PREFIX, SYNC_PROTOCOL_VERSION } from '@signage/shared';
+import { API_PREFIX, SYNC_PROTOCOL_VERSION, resolveDisplaySettings } from '@signage/shared';
 import {
   computeManifestVersion,
   type ManifestEmergency,
@@ -171,21 +171,41 @@ export async function buildSyncManifest(
       loop: playlist.loop,
       defaultImageDurationSeconds: playlist.defaultImageDurationSeconds,
       playbackOrderMode: playlist.playbackOrderMode as ManifestPlaylist['playbackOrderMode'],
-      items: entries.map((entry, index) => ({
-        id: entry.entryId,
-        mediaId: entry.media.id,
-        position: index,
-        durationSeconds: entry.durationSeconds,
-        fitMode: entry.fitMode as ManifestPlaylist['items'][number]['fitMode'],
-        enabled: true,
-        ...(entry.source === 'folder'
-          ? {
-              source: 'folder' as const,
-              sourceFolderId: entry.sourceFolderId,
-              sourceFolderPath: entry.sourceFolderPath,
-            }
-          : {}),
-      })),
+      defaultFitMode: playlist.defaultFitMode,
+      defaultBackgroundColor: playlist.defaultBackgroundColor,
+      defaultPositionMode: playlist.defaultPositionMode,
+      items: entries.map((entry, index) => {
+        // Resolve effective display at sync time so devices work offline.
+        const display = resolveDisplaySettings(
+          {
+            fitMode: entry.fitMode,
+            backgroundColor: entry.backgroundColor,
+            positionMode: entry.positionMode,
+          },
+          {
+            defaultFitMode: playlist.defaultFitMode,
+            defaultBackgroundColor: playlist.defaultBackgroundColor,
+            defaultPositionMode: playlist.defaultPositionMode,
+          },
+        );
+        return {
+          id: entry.entryId,
+          mediaId: entry.media.id,
+          position: index,
+          durationSeconds: entry.durationSeconds,
+          fitMode: display.fitMode,
+          backgroundColor: display.backgroundColor,
+          positionMode: display.positionMode,
+          enabled: true,
+          ...(entry.source === 'folder'
+            ? {
+                source: 'folder' as const,
+                sourceFolderId: entry.sourceFolderId,
+                sourceFolderPath: entry.sourceFolderPath,
+              }
+            : {}),
+        };
+      }),
       ...(priorityRules.length > 0 ? { priorityRules } : {}),
     });
     for (const entry of entries) addMedia(mediaMap, entry.media);
@@ -221,6 +241,13 @@ export async function buildSyncManifest(
       name: s.name,
     }));
 
+  const emergencyDisplay = activeOverride
+    ? resolveDisplaySettings({
+        fitMode: activeOverride.fitMode,
+        backgroundColor: activeOverride.backgroundColor,
+        positionMode: activeOverride.positionMode,
+      })
+    : null;
   const emergency: ManifestEmergency = activeOverride
     ? {
         active: true,
@@ -233,6 +260,9 @@ export async function buildSyncManifest(
             ? activeOverride.mediaAssetId
             : null,
         startedAt: activeOverride.startedAt.toISOString(),
+        fitMode: emergencyDisplay!.fitMode,
+        backgroundColor: emergencyDisplay!.backgroundColor,
+        positionMode: emergencyDisplay!.positionMode,
       }
     : { active: false, playlistId: null, mediaAssetId: null, startedAt: null };
 

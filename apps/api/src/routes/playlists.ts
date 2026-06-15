@@ -5,9 +5,11 @@ import {
   replacePlaylistItemsSchema,
   updatePlaylistSchema,
   PlaybackQueueEngine,
+  resolveDisplaySettings,
   seededRng,
   type PreviewWarning,
   type ResolvedPreviewDto,
+  type ResolvedPreviewItem,
   type ResolvedSampleEntry,
 } from '@signage/shared';
 import { z } from 'zod';
@@ -71,6 +73,8 @@ export async function playlistRoutes(app: FastifyInstance): Promise<void> {
       position: index,
       durationSeconds: item.durationSeconds,
       fitMode: item.fitMode,
+      backgroundColor: item.backgroundColor ?? null,
+      positionMode: item.positionMode ?? null,
       enabled: item.enabled,
       includeSubfolders: item.type === 'folder' ? item.includeSubfolders : false,
       filterMediaType: item.type === 'folder' ? (item.filterMediaType ?? null) : null,
@@ -101,6 +105,9 @@ export async function playlistRoutes(app: FastifyInstance): Promise<void> {
         loop: body.loop,
         defaultImageDurationSeconds: body.defaultImageDurationSeconds,
         playbackOrderMode: body.playbackOrderMode,
+        defaultFitMode: body.defaultFitMode ?? null,
+        defaultBackgroundColor: body.defaultBackgroundColor ?? null,
+        defaultPositionMode: body.defaultPositionMode ?? null,
         createdByUserId: req.user!.id,
         items: body.items?.length
           ? { create: body.items.map((item, index) => itemCreateData(item, index)) }
@@ -152,6 +159,9 @@ export async function playlistRoutes(app: FastifyInstance): Promise<void> {
         loop: body.loop,
         defaultImageDurationSeconds: body.defaultImageDurationSeconds,
         playbackOrderMode: body.playbackOrderMode,
+        defaultFitMode: body.defaultFitMode,
+        defaultBackgroundColor: body.defaultBackgroundColor,
+        defaultPositionMode: body.defaultPositionMode,
       },
       include: playlistInclude,
     });
@@ -252,6 +262,9 @@ export async function playlistRoutes(app: FastifyInstance): Promise<void> {
           loop: source.loop,
           defaultImageDurationSeconds: source.defaultImageDurationSeconds,
           playbackOrderMode: source.playbackOrderMode,
+          defaultFitMode: source.defaultFitMode,
+          defaultBackgroundColor: source.defaultBackgroundColor,
+          defaultPositionMode: source.defaultPositionMode,
           clonedFromPlaylistId: source.id,
           clonedAt: new Date(),
           createdByUserId: req.user!.id,
@@ -263,6 +276,8 @@ export async function playlistRoutes(app: FastifyInstance): Promise<void> {
               position: item.position,
               durationSeconds: item.durationSeconds,
               fitMode: item.fitMode,
+              backgroundColor: item.backgroundColor,
+              positionMode: item.positionMode,
               enabled: item.enabled,
               includeSubfolders: item.includeSubfolders,
               filterMediaType: item.filterMediaType,
@@ -471,6 +486,23 @@ export async function playlistRoutes(app: FastifyInstance): Promise<void> {
                 : null,
             );
           }
+          const display = resolveDisplaySettings(
+            {
+              fitMode: entry.fitMode,
+              backgroundColor: entry.backgroundColor,
+              positionMode: entry.positionMode,
+            },
+            {
+              defaultFitMode: playlist.defaultFitMode,
+              defaultBackgroundColor: playlist.defaultBackgroundColor,
+              defaultPositionMode: playlist.defaultPositionMode,
+            },
+          );
+          const displaySource: ResolvedPreviewItem['displaySource'] = entry.fitMode
+            ? 'item'
+            : playlist.defaultFitMode
+              ? 'playlist_default'
+              : 'platform_default';
           return {
             entryId: entry.entryId,
             mediaId: entry.media.id,
@@ -488,6 +520,10 @@ export async function playlistRoutes(app: FastifyInstance): Promise<void> {
               entry.source === 'folder' ? (entry.sourceFolderId ?? entry.itemId) : entry.itemId,
             sourceName: entry.source === 'folder' ? (entry.sourceFolderPath ?? null) : null,
             thumbnailUrl: thumbnails.get(entry.media.id),
+            effectiveFitMode: display.fitMode,
+            effectiveBackgroundColor: display.backgroundColor,
+            effectivePositionMode: display.positionMode,
+            displaySource,
           };
         }),
       ),

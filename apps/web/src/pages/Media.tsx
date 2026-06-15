@@ -6,6 +6,9 @@ import type {
   MediaUsageDto,
   FolderUsageDto,
 } from '@signage/shared';
+import { resolveDisplaySettings } from '@signage/shared';
+import { DisplaySettingsControls, type DisplayValue } from '../components/DisplaySettingsControls';
+import { MediaDisplayPreview } from '../components/MediaDisplayPreview';
 import {
   Badge,
   Button,
@@ -1125,6 +1128,63 @@ function MediaDetailModal({
           ) : null}
         </div>
       </div>
+      <DisplayModeTester media={media} />
     </Modal>
+  );
+}
+
+/** Lets the user try fit modes / background / position against this media without saving. */
+function DisplayModeTester({ media }: { media: MediaAssetDto }) {
+  const [orientation, setOrientation] = useState<'landscape' | 'portrait'>('landscape');
+  const [display, setDisplay] = useState<DisplayValue>({
+    fitMode: 'contain',
+    backgroundColor: '#000000',
+    positionMode: 'center',
+  });
+  const eff = resolveDisplaySettings(display);
+
+  return (
+    <details className="mt-4 border-t border-slate-100 pt-4">
+      <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+        Try display modes
+      </summary>
+      <p className="mt-1 text-xs text-slate-500">
+        Preview how this media looks with each fit mode. This does not change any playlist.
+      </p>
+      <div className="mt-3 grid gap-4 sm:grid-cols-[minmax(0,1fr)_14rem]">
+        <div className="space-y-3">
+          <div className="flex gap-2 text-xs">
+            {(['landscape', 'portrait'] as const).map((o) => (
+              <button
+                key={o}
+                type="button"
+                onClick={() => setOrientation(o)}
+                className={`rounded-md border px-2 py-1 ${
+                  orientation === o
+                    ? 'border-blue-500 bg-blue-50 text-blue-700'
+                    : 'border-slate-300 text-slate-600'
+                }`}
+              >
+                {o === 'landscape' ? 'Landscape screen' : 'Portrait screen'}
+              </button>
+            ))}
+          </div>
+          <DisplaySettingsControls value={display} onChange={setDisplay} />
+        </div>
+        <div>
+          <span className="mb-1 block text-xs font-medium text-slate-600">Preview</span>
+          <MediaDisplayPreview
+            thumbnailUrl={media.previewUrl ?? media.thumbnailUrl}
+            mediaType={media.mediaType}
+            width={media.width}
+            height={media.height}
+            orientation={orientation}
+            fitMode={eff.fitMode}
+            backgroundColor={eff.backgroundColor}
+            positionMode={eff.positionMode}
+          />
+        </div>
+      </div>
+    </details>
   );
 }

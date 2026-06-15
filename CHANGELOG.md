@@ -3,6 +3,36 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.4.0] — 2026-06-16
+
+Media display / fit-mode control across the full stack. Additive on top of v0.3;
+the migration (`20260616000000_display_settings`) only adds a new enum value, a new
+enum type, and nullable columns — no existing data changes (everything keeps
+rendering as `contain` / `#000000` / `center`).
+
+### Added
+
+- **Display / fit modes** — per playlist item and per playlist default: `contain`
+  (Fit to screen), `cover` (Fill / crop), `stretch`, `original`, and the new
+  `scale_down` (Scale down only, never upscales). Plus an optional **background
+  color** (hex, validated, default `#000000`) and **position/alignment**
+  (`center` … `bottom_right`). Single-media emergency overrides accept the same
+  settings.
+- **Single resolver** (`resolveDisplaySettings` in `@signage/shared`) with
+  precedence item → playlist default → platform default, used identically by the
+  manifest builder, resolved-preview and device agent — settings resolve at sync
+  time and work fully offline / across restarts.
+- **Sync manifest** now carries resolved `fitMode`/`backgroundColor`/`positionMode`
+  per item (and playlist `default*` for priority-rule items); backwards compatible
+  (missing fields → platform defaults, no protocol bump).
+- **Player** renders all fit modes via `object-fit`/`object-position`/flex
+  alignment and paints the background behind images and videos in every screen
+  orientation; no media files are modified.
+- **Dashboard** — fit/background/position controls per item and as playlist
+  defaults, a reusable `MediaDisplayPreview`, a "try display modes" tester on the
+  media detail modal, and effective display settings in the resolved preview.
+- Validation: invalid fit modes / position modes / colors are rejected with `400`.
+
 ## [0.3.0] — 2026-06-15
 
 Multi-organization usability and organization branding. Additive on top of v0.2;

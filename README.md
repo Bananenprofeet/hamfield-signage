@@ -38,6 +38,11 @@ through network outages from a local cache.
   switch between them from the sidebar; the active organization (logo, name, role)
   is always visible. Superadmins work in a "System / Superadmin" context and can
   open any organization and return to system context.
+- **Display / fit modes** — per-item and per-playlist control of how media fills the
+  screen: Fit to screen (`contain`), Fill / crop (`cover`), Stretch, Original size,
+  and Scale down only — plus a background color and alignment. Resolved at sync time
+  so devices render correctly offline; settings survive restarts. See the fit-mode
+  table in [docs/sync-protocol.md](docs/sync-protocol.md).
 - **Organization logos** — upload an SVG, PNG or JPG logo (≤ 2 MB) per organization
   in its settings; it appears in the sidebar, the organization switcher, and the
   superadmin companies list. SVGs are validated for safety and shown via `<img>`.

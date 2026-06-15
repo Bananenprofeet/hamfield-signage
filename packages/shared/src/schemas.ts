@@ -9,11 +9,22 @@ import {
   PLAYBACK_EVENT_TYPES,
   PLAYBACK_ORDER_MODES,
   PLAYED_AS_VALUES,
+  POSITION_MODES,
   PRIORITY_SELECTION_MODES,
 } from './enums';
+import { normalizeHexColor } from './display';
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** `#RGB` / `#RRGGBB` hex color, normalized to lowercase `#rrggbb`. */
+export const hexColorSchema = z
+  .string()
+  .transform((v) => v.trim())
+  .refine((v) => normalizeHexColor(v) !== null, {
+    message: 'Must be a hex color like #000000 or #fff',
+  })
+  .transform((v) => normalizeHexColor(v)!);
 
 export const timezoneSchema = z.string().min(1).max(64).refine(isValidTimezone, {
   message: 'Invalid IANA timezone',
@@ -162,6 +173,8 @@ export const playlistItemInputSchema = z
     folderId: z.string().min(1).nullable().optional(),
     durationSeconds: z.number().min(1).max(86400).nullable().optional(),
     fitMode: z.enum(FIT_MODES).nullable().optional(),
+    backgroundColor: hexColorSchema.nullable().optional(),
+    positionMode: z.enum(POSITION_MODES).nullable().optional(),
     enabled: z.boolean().default(true),
     includeSubfolders: z.boolean().default(false),
     filterMediaType: z.enum(['image', 'video']).nullable().optional(),
@@ -180,6 +193,9 @@ export const createPlaylistSchema = z.object({
   loop: z.boolean().default(true),
   defaultImageDurationSeconds: z.number().int().min(1).max(86400).default(10),
   playbackOrderMode: z.enum(PLAYBACK_ORDER_MODES).default('manual_order'),
+  defaultFitMode: z.enum(FIT_MODES).nullable().optional(),
+  defaultBackgroundColor: hexColorSchema.nullable().optional(),
+  defaultPositionMode: z.enum(POSITION_MODES).nullable().optional(),
   items: z.array(playlistItemInputSchema).optional(),
 });
 
@@ -189,6 +205,9 @@ export const updatePlaylistSchema = z.object({
   loop: z.boolean().optional(),
   defaultImageDurationSeconds: z.number().int().min(1).max(86400).optional(),
   playbackOrderMode: z.enum(PLAYBACK_ORDER_MODES).optional(),
+  defaultFitMode: z.enum(FIT_MODES).nullable().optional(),
+  defaultBackgroundColor: hexColorSchema.nullable().optional(),
+  defaultPositionMode: z.enum(POSITION_MODES).nullable().optional(),
 });
 
 export const replacePlaylistItemsSchema = z.object({
@@ -326,6 +345,11 @@ export const startEmergencySchema = z
     appliesToAll: z.boolean().default(false),
     deviceIds: z.array(z.string()).default([]),
     groupIds: z.array(z.string()).default([]),
+    // Display settings apply only to single-media overrides; playlist overrides
+    // use the playlist's own item/default display settings.
+    fitMode: z.enum(FIT_MODES).nullable().optional(),
+    backgroundColor: hexColorSchema.nullable().optional(),
+    positionMode: z.enum(POSITION_MODES).nullable().optional(),
   })
   .refine((v) => Boolean(v.playlistId) !== Boolean(v.mediaAssetId), {
     message: 'Provide exactly one of playlistId or mediaAssetId',

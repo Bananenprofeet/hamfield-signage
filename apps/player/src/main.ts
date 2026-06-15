@@ -1,5 +1,7 @@
 import {
   PlaybackQueueEngine,
+  cssObjectPosition,
+  flexAlignment,
   type AgentToPlayerMessage,
   type PlayerState,
   type PlayerStateItem,
@@ -135,6 +137,13 @@ function fitClass(item: PlayerStateItem): string {
   return `fit-${item.fitMode}`;
 }
 
+/** Applies fit class + alignment to the media element (used for all fit modes). */
+function styleMediaElement(el: HTMLElement, item: PlayerStateItem): void {
+  el.className = fitClass(item);
+  // object-position positions media within contain/cover; harmless otherwise.
+  el.style.objectPosition = cssObjectPosition(item.positionMode);
+}
+
 function buildMediaElement(item: PlayerStateItem): Promise<HTMLImageElement | HTMLVideoElement> {
   return new Promise((resolve, reject) => {
     const url = `${mediaBase}${item.url}`;
@@ -145,7 +154,7 @@ function buildMediaElement(item: PlayerStateItem): Promise<HTMLImageElement | HT
 
     if (item.mediaType === 'image') {
       const img = document.createElement('img');
-      img.className = fitClass(item);
+      styleMediaElement(img, item);
       img.onload = () => {
         window.clearTimeout(timeout);
         resolve(img);
@@ -157,7 +166,7 @@ function buildMediaElement(item: PlayerStateItem): Promise<HTMLImageElement | HT
       img.src = url;
     } else {
       const video = document.createElement('video');
-      video.className = fitClass(item);
+      styleMediaElement(video, item);
       // Muted autoplay is required for kiosk Chromium; audio is out of scope
       // for v1 but nothing here prevents unmuting later.
       video.muted = true;
@@ -177,9 +186,17 @@ function buildMediaElement(item: PlayerStateItem): Promise<HTMLImageElement | HT
   });
 }
 
-function swapToLayer(layer: number, element: HTMLElement): void {
+function swapToLayer(layer: number, element: HTMLElement, item: PlayerStateItem): void {
   const next = layerEls[layer];
   const prev = layerEls[1 - layer];
+  // Background color sits behind the media (no white flash); the stage matches
+  // so rotated/letterboxed areas use the same color.
+  next.style.backgroundColor = item.backgroundColor;
+  stage.style.backgroundColor = item.backgroundColor;
+  // Alignment for natural-size modes (original/scale_down) via the flex layer.
+  const { justify, align } = flexAlignment(item.positionMode);
+  next.style.justifyContent = justify;
+  next.style.alignItems = align;
   next.replaceChildren(element);
   next.classList.add('visible');
   prev.classList.remove('visible');
@@ -266,7 +283,7 @@ async function showCurrent(): Promise<void> {
   if (token !== playToken) return;
 
   activeLayer = 1 - activeLayer;
-  swapToLayer(activeLayer, element);
+  swapToLayer(activeLayer, element, item);
   showFallback(false);
   sendEvent('start', item, playlistId, undefined, play);
   if (state && isRandomMode(state)) rememberLastPlayed(item.mediaId);
@@ -300,7 +317,14 @@ async function showCurrent(): Promise<void> {
 
 function contentFingerprint(s: PlayerState): string {
   return JSON.stringify([
-    s.items.map((i) => [i.id, i.url, i.durationSeconds, i.fitMode]),
+    s.items.map((i) => [
+      i.id,
+      i.url,
+      i.durationSeconds,
+      i.fitMode,
+      i.backgroundColor,
+      i.positionMode,
+    ]),
     s.loop,
     s.source,
     s.playbackOrderMode,

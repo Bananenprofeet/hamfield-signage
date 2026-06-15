@@ -96,6 +96,10 @@ export async function emergencyRoutes(app: FastifyInstance): Promise<void> {
         mediaAssetId: body.mediaAssetId ?? null,
         active: true,
         appliesToAll: body.appliesToAll,
+        // Display settings apply to single-media overrides only.
+        fitMode: body.mediaAssetId ? (body.fitMode ?? null) : null,
+        backgroundColor: body.mediaAssetId ? (body.backgroundColor ?? null) : null,
+        positionMode: body.mediaAssetId ? (body.positionMode ?? null) : null,
         createdByUserId: req.user!.id,
         devices: body.appliesToAll
           ? undefined

@@ -81,6 +81,14 @@ body {
   max-height: none;
   object-fit: none;
 }
+/* Scale down only: natural size unless larger than the screen, never upscale. */
+.layer .fit-scale_down {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
 
 #fallback {
   position: absolute;
