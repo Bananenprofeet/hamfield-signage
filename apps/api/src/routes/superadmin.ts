@@ -14,7 +14,7 @@ import { hashPassword } from '../lib/auth';
 import { authenticateUser, requireSuperadmin } from '../plugins/auth';
 import { badRequest, conflict, notFound } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
-import { serializeOrg } from '../lib/serializers';
+import { orgLogoUrl, serializeOrg } from '../lib/serializers';
 
 type OrgParams = { Params: { orgId: string } };
 type UserParams = { Params: { userId: string } };
@@ -65,13 +65,15 @@ export async function superadminRoutes(app: FastifyInstance): Promise<void> {
         Number(s._sum.sizeBytes ?? 0n) + Number(s._sum.processedSizeBytes ?? 0n),
       ]),
     );
-    return orgs.map((org) => ({
-      ...serializeOrg(org),
-      deviceCount: org._count.devices,
-      userCount: org._count.members,
-      mediaCount: org._count.mediaAssets,
-      storageUsedBytes: storageByOrg.get(org.id) ?? 0,
-    }));
+    return Promise.all(
+      orgs.map(async (org) => ({
+        ...serializeOrg(org, undefined, { logoUrl: await orgLogoUrl(org) }),
+        deviceCount: org._count.devices,
+        userCount: org._count.members,
+        mediaCount: org._count.mediaAssets,
+        storageUsedBytes: storageByOrg.get(org.id) ?? 0,
+      })),
+    );
   });
 
   app.post('/superadmin/organizations', async (req, reply) => {

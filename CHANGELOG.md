@@ -3,6 +3,35 @@
 All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.3.0] — 2026-06-15
+
+Multi-organization usability and organization branding. Additive on top of v0.2;
+the migration (`20260615000000_org_logos`) only adds nullable logo columns to
+`organizations` and changes no existing data.
+
+### Added
+
+- **Multi-organization switching** — sidebar organization switcher showing the
+  active organization's logo, name and the caller's role, with a clear dropdown of
+  all organizations the user belongs to. Switching remounts org-scoped pages so no
+  stale data flashes. The active organization is persisted in `localStorage`.
+- **Superadmin system context** — superadmins default to a "System / Superadmin"
+  context with no active organization; they can open any organization (from the
+  switcher or the companies list) and return to system context. Org-scoped
+  navigation is hidden in system context.
+- **Organization logos** — upload/replace/remove an SVG/PNG/JPG/JPEG logo (≤ 2 MB)
+  per organization (`POST`/`DELETE /orgs/:orgId/logo`, admin/owner/superadmin).
+  Logos render in the sidebar, switcher and superadmin companies list. Validated
+  by content; SVGs are rejected if scriptable or network-active and are only shown
+  via `<img>` (never inlined). Org responses now include `logoUrl`, `logoMimeType`
+  and `logoUpdatedAt`.
+
+### Fixed
+
+- **Settings blank screen** — opening Settings as a superadmin with no active
+  organization no longer renders blank; org-scoped sections show a clear no-org
+  state, and a top-level error boundary prevents render errors from blanking pages.
+
 ## [0.2.0] — 2026-06-14
 
 A feature upgrade on top of v1. All v1 behaviour is preserved; existing users,

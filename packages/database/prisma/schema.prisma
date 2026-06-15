@@ -146,6 +146,13 @@ model Organization {
   planName     String?
   maxDevices   Int?
   maxStorageGb Int?
+  // Branding. Logos are stored in object storage (S3/MinIO); only the key and
+  // metadata live here. See the org logo endpoints in routes/orgs.ts.
+  logoStorageKey       String?
+  logoMimeType         String?
+  logoOriginalFilename String?
+  logoSizeBytes        Int?
+  logoUpdatedAt        DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   deletedAt    DateTime?

@@ -34,6 +34,13 @@ through network outages from a local cache.
 - **Superadmin & accounts** — install-time superadmin, a platform admin area for
   managing organizations and users, forced first-login password change, and an
   audit log of privileged actions. Public self-service registration is disabled.
+- **Multi-organization switching** — users who belong to several organizations
+  switch between them from the sidebar; the active organization (logo, name, role)
+  is always visible. Superadmins work in a "System / Superadmin" context and can
+  open any organization and return to system context.
+- **Organization logos** — upload an SVG, PNG or JPG logo (≤ 2 MB) per organization
+  in its settings; it appears in the sidebar, the organization switcher, and the
+  superadmin companies list. SVGs are validated for safety and shown via `<img>`.
 
 See [CHANGELOG.md](CHANGELOG.md) for the full v0.2 feature upgrade.
 

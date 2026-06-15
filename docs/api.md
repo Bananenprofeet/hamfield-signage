@@ -34,10 +34,32 @@ dashboard forces a password change before any other action.
 | POST   | `/orgs`                          | `{ name }` — create another org; caller becomes `owner`.                                                  |
 | GET    | `/orgs/:orgId`                   | Org detail.                                                                                               |
 | PATCH  | `/orgs/:orgId`                   | `{ name }` — admin.                                                                                       |
+| POST   | `/orgs/:orgId/logo`              | `multipart/form-data` (`file`) — admin/owner/superadmin. Upload/replace the org logo. See below.          |
+| DELETE | `/orgs/:orgId/logo`              | Admin/owner/superadmin. Removes the org logo.                                                             |
 | GET    | `/orgs/:orgId/members`           | Member list (`id, userId, email, name, role, createdAt`).                                                 |
 | POST   | `/orgs/:orgId/members`           | `{ email, role }` — admin. Role cannot be `owner`; the user must already have an account (404 otherwise). |
 | PATCH  | `/orgs/:orgId/members/:memberId` | `{ role }` — admin. The owner row is immutable; granting `owner` requires being `owner`.                  |
 | DELETE | `/orgs/:orgId/members/:memberId` | Admin. The owner cannot be removed.                                                                       |
+
+**Organization object.** `/auth/login`, `/auth/me`, `/orgs`, `/orgs/:orgId` and
+`/superadmin/organizations` return organizations shaped as
+`{ id, name, slug, status, planName, maxDevices, maxStorageGb, role?, logoUrl, logoMimeType, logoUpdatedAt, createdAt }`.
+`role` is the caller's role in that org. `logoUrl` is a short-lived presigned URL
+(≈24 h, refreshed on every `/auth/me`) or `null` when no logo is set.
+
+**Logo upload (`POST /orgs/:orgId/logo`).** Multipart field `file`.
+
+- Allowed formats: **SVG, PNG, JPG/JPEG**. Validated by content (magic bytes for
+  raster, XML sniffing for SVG) — the client MIME type and extension are never trusted.
+- Max size: **2 MB** (`ORG_LOGO_MAX_BYTES`). Empty files are rejected.
+- **SVG safety:** SVGs are rejected if they contain `<script>`, inline `on*`
+  handlers, `javascript:` URIs, `<foreignObject>`, `<!DOCTYPE>`/`<!ENTITY>`
+  declarations, or external (`http(s)://`) references. Logos are only ever
+  rendered via `<img src>` (never inlined), so they cannot execute script.
+- Permissions: organization **admin** or **owner**, or any **superadmin**
+  (the same route serves superadmins acting in an org context). `viewer`/`editor`
+  cannot change branding. The previous logo object is deleted best-effort.
+- Audited as `organization.logo.update` / `organization.logo.delete`.
 
 ## Devices (screens)
 

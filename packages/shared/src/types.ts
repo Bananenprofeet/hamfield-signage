@@ -36,6 +36,10 @@ export interface OrganizationDto {
   maxDevices?: number | null;
   maxStorageGb?: number | null;
   role?: OrgRole;
+  /** Short-lived URL for the organization logo, or null when none is set. */
+  logoUrl?: string | null;
+  logoMimeType?: string | null;
+  logoUpdatedAt?: string | null;
   createdAt: string;
 }
 

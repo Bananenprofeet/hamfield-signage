@@ -1,6 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import type { OrganizationDto, OrganizationMemberDto } from '@signage/shared';
+import {
+  ORG_LOGO_ACCEPT,
+  ORG_LOGO_MAX_BYTES,
+  type OrganizationDto,
+  type OrganizationMemberDto,
+} from '@signage/shared';
 import {
   Badge,
   Button,
@@ -16,6 +21,7 @@ import {
 } from '../components/ui';
 import { api } from '../lib/api';
 import { useAuth, useOrgId } from '../lib/auth';
+import { OrganizationLogo } from '../components/OrganizationLogo';
 import { formatDateTime } from '../lib/format';
 import { useAction, useApi } from '../lib/hooks';
 
@@ -79,6 +85,15 @@ export function OrgSettingsPage() {
           </div>
           {org.data ? <p className="mt-2 text-xs text-slate-500">Slug: {org.data.slug}</p> : null}
         </Card>
+
+        <LogoCard
+          orgId={orgId}
+          org={org.data}
+          onChanged={async () => {
+            await refreshOrgs();
+            org.reload();
+          }}
+        />
 
         <Card title="Members">
           <ErrorNote message={members.error ?? changeRole.error ?? removeMember.error} />
@@ -153,6 +168,79 @@ export function OrgSettingsPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function LogoCard({
+  orgId,
+  org,
+  onChanged,
+}: {
+  orgId: string;
+  org: OrganizationDto | null;
+  onChanged: () => Promise<void> | void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  const upload = useAction(async (file: File) => {
+    setSuccess(false);
+    await api.upload<OrganizationDto>(`/orgs/${orgId}/logo`, file);
+    await onChanged();
+    setSuccess(true);
+  });
+
+  const remove = useAction(async () => {
+    setSuccess(false);
+    await api.delete(`/orgs/${orgId}/logo`);
+    await onChanged();
+  });
+
+  const onPick = (file: File | undefined) => {
+    setLocalError(null);
+    setSuccess(false);
+    if (!file) return;
+    if (file.size > ORG_LOGO_MAX_BYTES) {
+      setLocalError(
+        `File is too large — the maximum logo size is ${ORG_LOGO_MAX_BYTES / 1024 / 1024} MB.`,
+      );
+      return;
+    }
+    upload.run(file);
+  };
+
+  return (
+    <Card title="Logo">
+      <ErrorNote message={localError ?? upload.error ?? remove.error} />
+      <div className="flex items-center gap-4">
+        <OrganizationLogo org={org} size={64} className="border border-slate-200" />
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-2">
+            <input
+              ref={inputRef}
+              type="file"
+              accept={ORG_LOGO_ACCEPT}
+              className="hidden"
+              onChange={(e) => onPick(e.target.files?.[0] ?? undefined)}
+            />
+            <Button small disabled={upload.busy} onClick={() => inputRef.current?.click()}>
+              {upload.busy ? 'Uploading…' : org?.logoUrl ? 'Change logo' : 'Upload logo'}
+            </Button>
+            {org?.logoUrl ? (
+              <Button variant="ghost" small disabled={remove.busy} onClick={() => remove.run()}>
+                Remove
+              </Button>
+            ) : null}
+          </div>
+          <p className="text-xs text-slate-500">
+            SVG, PNG or JPG · up to {ORG_LOGO_MAX_BYTES / 1024 / 1024} MB. Shown in the sidebar and
+            organization switcher.
+          </p>
+          {success ? <p className="text-xs font-medium text-green-600">Logo updated.</p> : null}
+        </div>
+      </div>
+    </Card>
   );
 }
 

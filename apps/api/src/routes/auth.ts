@@ -4,7 +4,21 @@ import { hashPassword, signUserToken, verifyPassword } from '../lib/auth';
 import { authenticateUser, requireActiveUser } from '../plugins/auth';
 import { badRequest, forbidden, gone, unauthorized } from '../lib/errors';
 import { writeAudit } from '../lib/audit';
-import { serializeOrg, serializeUser } from '../lib/serializers';
+import { orgLogoUrl, serializeOrg, serializeUser } from '../lib/serializers';
+import type { Organization, OrgRole } from '@signage/database';
+
+/** Serializes the caller's organizations, including a presigned logo URL each. */
+async function serializeMemberOrgs(
+  memberships: Array<{ organization: Organization; role: OrgRole }>,
+  isSuperadmin: boolean,
+) {
+  const visible = memberships.filter((m) => m.organization.status === 'active' || isSuperadmin);
+  return Promise.all(
+    visible.map(async (m) =>
+      serializeOrg(m.organization, m.role, { logoUrl: await orgLogoUrl(m.organization) }),
+    ),
+  );
+}
 
 export async function authRoutes(app: FastifyInstance): Promise<void> {
   const { prisma } = app;
@@ -55,9 +69,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
       return {
         token: signUserToken({ sub: user.id, email: user.email }),
         user: serializeUser(user),
-        organizations: memberships
-          .filter((m) => m.organization.status === 'active' || user.globalRole === 'superadmin')
-          .map((m) => serializeOrg(m.organization, m.role)),
+        organizations: await serializeMemberOrgs(memberships, user.globalRole === 'superadmin'),
       };
     },
   );
@@ -70,9 +82,7 @@ export async function authRoutes(app: FastifyInstance): Promise<void> {
     });
     return {
       user: serializeUser(user),
-      organizations: memberships
-        .filter((m) => m.organization.status === 'active' || user.globalRole === 'superadmin')
-        .map((m) => serializeOrg(m.organization, m.role)),
+      organizations: await serializeMemberOrgs(memberships, user.globalRole === 'superadmin'),
     };
   });
 
