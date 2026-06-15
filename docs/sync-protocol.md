@@ -42,13 +42,18 @@ or corrupted sync can never break playback. Types live in
       "loop": true,
       "defaultImageDurationSeconds": 10,
       "playbackOrderMode": "manual_order", // manual_order | alphabetical | random | random_with_priority_rules
+      "defaultFitMode": null, // playlist display defaults (used for priority-rule items)
+      "defaultBackgroundColor": null,
+      "defaultPositionMode": null,
       "items": [
         {
           "id": "item_…",
           "mediaId": "med_…",
           "position": 0,
           "durationSeconds": null, // null → image inherits playlist default, video plays natural length
-          "fitMode": null, // null → platform default "contain"
+          "fitMode": "contain", // resolved/effective: contain | cover | stretch | original | scale_down
+          "backgroundColor": "#000000", // resolved hex color behind the media
+          "positionMode": "center", // resolved alignment
           "enabled": true,
           "source": "folder", // "item" (direct) or "folder" (expanded from a dynamic folder entry)
           "sourceFolderId": "fld_…", // display/debug only when source = "folder"
@@ -170,8 +175,29 @@ What actually plays is computed locally and offline from the applied manifest by
 Disabled items are skipped. Items whose media is not yet cached are skipped with
 a "downloading" status rather than blocking the rest of the playlist; they join
 playback as soon as their download lands. Images default to the playlist's
-`defaultImageDurationSeconds` (10s), videos to their natural duration; `fitMode`
-defaults to `contain`.
+`defaultImageDurationSeconds` (10s), videos to their natural duration.
+
+### Display settings (fit mode, background, position)
+
+Each item carries **resolved** display settings, applied by the backend at sync
+time with precedence **item override → playlist default → platform default**
+(`contain` / `#000000` / `center`). The single resolver
+(`resolveDisplaySettings` in `@signage/shared`) is used by the manifest builder,
+the dashboard resolved-preview and the device agent, so the rules never diverge.
+Devices need no backend access to display correctly offline. Older manifests
+without these fields fall back to the platform defaults. Priority-rule items have
+no per-item settings and use the playlist `default*` fields.
+
+| User label         | Internal value | Aspect ratio |             Crops | Upscales | Distorts |
+| ------------------ | -------------- | -----------: | ----------------: | -------: | -------: |
+| Fit to screen      | contain        |          yes |                no |      yes |       no |
+| Fill screen / crop | cover          |          yes |               yes |      yes |       no |
+| Stretch to screen  | stretch        |           no |                no |      yes |      yes |
+| Original size      | original       |          yes | possible clipping |       no |       no |
+| Scale down only    | scale_down     |          yes |                no |       no |       no |
+
+Fit mode applies to the active (post-rotation) viewport, so it behaves correctly
+in every screen orientation; media files are never rotated or modified.
 
 ### Playback order (offline)
 

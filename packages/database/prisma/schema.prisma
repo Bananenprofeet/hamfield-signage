@@ -82,6 +82,19 @@ enum FitMode {
   cover
   stretch
   original
+  scale_down
+}
+
+enum PositionMode {
+  center
+  top
+  bottom
+  left
+  right
+  top_left
+  top_right
+  bottom_left
+  bottom_right
 }
 
 enum CommandStatus {
@@ -415,6 +428,10 @@ model Playlist {
   loop                        Boolean           @default(true)
   defaultImageDurationSeconds Int               @default(10)
   playbackOrderMode           PlaybackOrderMode @default(manual_order)
+  // Display defaults applied to items whose own value is unset.
+  defaultFitMode              FitMode?
+  defaultBackgroundColor      String?
+  defaultPositionMode         PositionMode?
   clonedFromPlaylistId        String?
   clonedAt                    DateTime?
   createdByUserId             String?
@@ -444,6 +461,9 @@ model PlaylistItem {
   position          Int
   durationSeconds   Float?
   fitMode           FitMode?
+  /// Hex color (#rrggbb) shown behind the media; null = inherit playlist/platform default.
+  backgroundColor   String?
+  positionMode      PositionMode?
   enabled           Boolean          @default(true)
   includeSubfolders Boolean          @default(false)
   /// null = include all media types (folder entries only).
@@ -571,6 +591,10 @@ model EmergencyOverride {
   mediaAssetId    String?
   active          Boolean   @default(true)
   appliesToAll    Boolean   @default(false)
+  // Display settings for single-media overrides (ignored for playlist overrides).
+  fitMode         FitMode?
+  backgroundColor String?
+  positionMode    PositionMode?
   startedAt       DateTime  @default(now())
   stoppedAt       DateTime?
   createdByUserId String?

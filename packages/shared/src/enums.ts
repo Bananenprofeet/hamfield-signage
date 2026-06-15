@@ -9,8 +9,21 @@ export type DeviceOrientation = (typeof DEVICE_ORIENTATIONS)[number];
 export const MEDIA_ORIENTATIONS = ['landscape', 'portrait', 'square'] as const;
 export type MediaOrientation = (typeof MEDIA_ORIENTATIONS)[number];
 
-export const FIT_MODES = ['contain', 'cover', 'stretch', 'original'] as const;
+export const FIT_MODES = ['contain', 'cover', 'stretch', 'original', 'scale_down'] as const;
 export type FitMode = (typeof FIT_MODES)[number];
+
+export const POSITION_MODES = [
+  'center',
+  'top',
+  'bottom',
+  'left',
+  'right',
+  'top_left',
+  'top_right',
+  'bottom_left',
+  'bottom_right',
+] as const;
+export type PositionMode = (typeof POSITION_MODES)[number];
 
 export const MEDIA_TYPES = ['image', 'video'] as const;
 export type MediaType = (typeof MEDIA_TYPES)[number];

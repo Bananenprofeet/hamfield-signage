@@ -292,6 +292,82 @@ describe('playback order modes (v2 manifests)', () => {
   });
 });
 
+describe('display settings resolution', () => {
+  const ctx = { paired: true, online: true, cachedMediaIds: allCached };
+
+  it('falls back to platform defaults (contain / #000000 / center)', () => {
+    const state = computePlayerState(manifest(), ctx);
+    expect(state.items[0].fitMode).toBe('contain');
+    expect(state.items[0].backgroundColor).toBe('#000000');
+    expect(state.items[0].positionMode).toBe('center');
+  });
+
+  it('item override wins over the playlist default', () => {
+    const m = manifest();
+    m.playlists[0].defaultFitMode = 'stretch';
+    m.playlists[0].items[1].fitMode = 'cover'; // explicit override on item-2
+    const state = computePlayerState(m, ctx);
+    expect(state.items[1].fitMode).toBe('cover');
+  });
+
+  it('playlist default applies to items with no override', () => {
+    const m = manifest();
+    m.playlists[0].defaultFitMode = 'scale_down';
+    m.playlists[0].defaultBackgroundColor = '#1f2937';
+    m.playlists[0].defaultPositionMode = 'top';
+    const state = computePlayerState(m, ctx);
+    expect(state.items[0].fitMode).toBe('scale_down'); // item-1 has fitMode null
+    expect(state.items[0].backgroundColor).toBe('#1f2937');
+    expect(state.items[0].positionMode).toBe('top');
+  });
+
+  it('carries per-item background and position from the manifest', () => {
+    const m = manifest();
+    m.playlists[0].items[0].backgroundColor = '#ffffff';
+    m.playlists[0].items[0].positionMode = 'bottom_right';
+    const state = computePlayerState(m, ctx);
+    expect(state.items[0].backgroundColor).toBe('#ffffff');
+    expect(state.items[0].positionMode).toBe('bottom_right');
+  });
+
+  it('resolves emergency single-media display settings', () => {
+    const m = manifest({
+      emergency: {
+        active: true,
+        playlistId: null,
+        mediaAssetId: 'img-1',
+        startedAt: '2026-01-01T00:00:00.000Z',
+        fitMode: 'cover',
+        backgroundColor: '#222222',
+        positionMode: 'left',
+      },
+    });
+    const state = computePlayerState(m, ctx);
+    expect(state.items[0].fitMode).toBe('cover');
+    expect(state.items[0].backgroundColor).toBe('#222222');
+    expect(state.items[0].positionMode).toBe('left');
+  });
+
+  it('priority-rule items use the playlist display defaults', () => {
+    const m = manifest();
+    m.playlists[0].playbackOrderMode = 'random_with_priority_rules';
+    m.playlists[0].defaultFitMode = 'cover';
+    m.playlists[0].priorityRules = [
+      {
+        id: 'rule-1',
+        name: 'Sponsors',
+        intervalCount: 5,
+        selectionMode: 'rotate',
+        position: 0,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        mediaIds: ['img-1'],
+      },
+    ];
+    const state = computePlayerState(m, ctx);
+    expect(state.priorityRules[0].items[0].fitMode).toBe('cover');
+  });
+});
+
 describe('stateFingerprint', () => {
   it('is stable for identical states and differs when content changes', () => {
     const ctx = { paired: true, online: true, cachedMediaIds: allCached };

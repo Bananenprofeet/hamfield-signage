@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import type {
-  MediaAssetDto,
+  FitMode,
   MediaFolderDto,
   PlaybackOrderMode,
   PlaylistDto,
   PlaylistItemDto,
+  PositionMode,
   PriorityRuleDto,
   ResolvedPreviewDto,
 } from '@signage/shared';
+import { FIT_MODE_INFO, resolveDisplaySettings } from '@signage/shared';
+import type { MediaAssetDto } from '@signage/shared';
 import {
   Badge,
   Button,
@@ -22,6 +25,8 @@ import {
   Spinner,
 } from '../components/ui';
 import { FolderPickerModal } from '../components/FolderTree';
+import { DisplaySettingsControls, type DisplayValue } from '../components/DisplaySettingsControls';
+import { MediaDisplayPreview } from '../components/MediaDisplayPreview';
 import { api } from '../lib/api';
 import { useOrgId } from '../lib/auth';
 import { formatDuration } from '../lib/format';
@@ -39,7 +44,9 @@ interface EditableItem {
   mediaDuration: number | null;
   thumbnailUrl?: string | null;
   durationSeconds: number | null;
-  fitMode: '' | 'contain' | 'cover' | 'stretch' | 'original';
+  fitMode: FitMode | null;
+  backgroundColor: string | null;
+  positionMode: PositionMode | null;
   enabled: boolean;
   includeSubfolders: boolean;
   filterMediaType: '' | 'image' | 'video';
@@ -63,7 +70,9 @@ function toEditable(item: PlaylistItemDto): EditableItem {
     mediaDuration: item.media?.durationSeconds ?? null,
     thumbnailUrl: item.media?.thumbnailUrl,
     durationSeconds: item.durationSeconds,
-    fitMode: (item.fitMode ?? '') as EditableItem['fitMode'],
+    fitMode: item.fitMode,
+    backgroundColor: item.backgroundColor,
+    positionMode: item.positionMode,
     enabled: item.enabled,
     includeSubfolders: item.includeSubfolders,
     filterMediaType: (item.filterMediaType ?? '') as EditableItem['filterMediaType'],
@@ -111,6 +120,11 @@ export function PlaylistEditorPage() {
   const [loop, setLoop] = useState(true);
   const [defaultDuration, setDefaultDuration] = useState(10);
   const [orderMode, setOrderMode] = useState<PlaybackOrderMode>('manual_order');
+  const [defaults, setDefaults] = useState<DisplayValue>({
+    fitMode: null,
+    backgroundColor: null,
+    positionMode: null,
+  });
   const [items, setItems] = useState<EditableItem[]>([]);
   const [dirty, setDirty] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
@@ -123,6 +137,11 @@ export function PlaylistEditorPage() {
     setLoop(playlist.data.loop);
     setDefaultDuration(playlist.data.defaultImageDurationSeconds);
     setOrderMode(playlist.data.playbackOrderMode);
+    setDefaults({
+      fitMode: playlist.data.defaultFitMode,
+      backgroundColor: playlist.data.defaultBackgroundColor,
+      positionMode: playlist.data.defaultPositionMode,
+    });
     setItems((playlist.data.items ?? []).map(toEditable));
     setDirty(false);
   }, [playlist.data]);
@@ -134,6 +153,9 @@ export function PlaylistEditorPage() {
       loop,
       defaultImageDurationSeconds: defaultDuration,
       playbackOrderMode: orderMode,
+      defaultFitMode: defaults.fitMode,
+      defaultBackgroundColor: defaults.backgroundColor,
+      defaultPositionMode: defaults.positionMode,
     });
     await api.put(`/orgs/${orgId}/playlists/${playlistId}/items`, {
       items: items.map((item) => ({
@@ -141,7 +163,9 @@ export function PlaylistEditorPage() {
         mediaAssetId: item.type === 'media' ? item.mediaAssetId : null,
         folderId: item.type === 'folder' ? item.folderId : null,
         durationSeconds: item.durationSeconds,
-        fitMode: item.fitMode || null,
+        fitMode: item.fitMode,
+        backgroundColor: item.backgroundColor,
+        positionMode: item.positionMode,
         enabled: item.enabled,
         includeSubfolders: item.includeSubfolders,
         filterMediaType: item.filterMediaType || null,
@@ -271,6 +295,23 @@ export function PlaylistEditorPage() {
             </div>
           </Card>
 
+          <Card title="Display defaults">
+            <p className="mb-3 text-xs text-slate-500">
+              Applied to entries that don’t set their own fit mode, background color, or position.
+              The platform default is “Fit to screen” on a black background, centered.
+            </p>
+            <div className="max-w-md">
+              <DisplaySettingsControls
+                value={defaults}
+                inheritLabel="Platform default"
+                onChange={(next) => {
+                  setDefaults(next);
+                  setDirty(true);
+                }}
+              />
+            </div>
+          </Card>
+
           <Card
             title="Entries"
             actions={
@@ -375,25 +416,9 @@ export function PlaylistEditorPage() {
                           }
                         />
                       </div>
-                      <div className="w-28">
-                        <Select
-                          value={item.fitMode}
-                          onChange={(e) =>
-                            mutate((list) =>
-                              list.map((x) =>
-                                x.key === item.key
-                                  ? { ...x, fitMode: e.target.value as EditableItem['fitMode'] }
-                                  : x,
-                              ),
-                            )
-                          }
-                        >
-                          <option value="">Default fit</option>
-                          <option value="contain">Contain</option>
-                          <option value="cover">Cover</option>
-                          <option value="stretch">Stretch</option>
-                          <option value="original">Original</option>
-                        </Select>
+                      <div className="w-28 text-xs text-slate-500" title="Fit mode">
+                        {FIT_MODE_INFO[item.fitMode ?? 'contain'].label}
+                        {item.fitMode ? '' : ' (default)'}
                       </div>
                       <label
                         className="flex items-center gap-1 text-xs text-slate-500"
@@ -420,6 +445,54 @@ export function PlaylistEditorPage() {
                         Remove
                       </Button>
                     </div>
+                    <details className="ml-[6.5rem] mt-2">
+                      <summary className="cursor-pointer text-xs font-medium text-slate-500">
+                        Display settings
+                      </summary>
+                      <div className="mt-2 grid gap-4 sm:grid-cols-[minmax(0,1fr)_10rem]">
+                        <DisplaySettingsControls
+                          value={{
+                            fitMode: item.fitMode,
+                            backgroundColor: item.backgroundColor,
+                            positionMode: item.positionMode,
+                          }}
+                          inheritLabel="Playlist default"
+                          onChange={(next) =>
+                            mutate((list) =>
+                              list.map((x) => (x.key === item.key ? { ...x, ...next } : x)),
+                            )
+                          }
+                        />
+                        <div>
+                          <span className="mb-1 block text-xs font-medium text-slate-600">
+                            Preview
+                          </span>
+                          {(() => {
+                            const eff = resolveDisplaySettings(
+                              {
+                                fitMode: item.fitMode,
+                                backgroundColor: item.backgroundColor,
+                                positionMode: item.positionMode,
+                              },
+                              {
+                                defaultFitMode: defaults.fitMode,
+                                defaultBackgroundColor: defaults.backgroundColor,
+                                defaultPositionMode: defaults.positionMode,
+                              },
+                            );
+                            return (
+                              <MediaDisplayPreview
+                                thumbnailUrl={item.thumbnailUrl}
+                                mediaType={item.mediaType ?? 'image'}
+                                fitMode={eff.fitMode}
+                                backgroundColor={eff.backgroundColor}
+                                positionMode={eff.positionMode}
+                              />
+                            );
+                          })()}
+                        </div>
+                      </div>
+                    </details>
                     {item.type === 'folder' ? (
                       <div className="ml-[6.5rem] mt-1.5 flex flex-wrap items-center gap-3 text-xs text-slate-500">
                         <label className="flex items-center gap-1">
@@ -522,7 +595,9 @@ export function PlaylistEditorPage() {
                   mediaDuration: media.durationSeconds,
                   thumbnailUrl: media.thumbnailUrl,
                   durationSeconds: null,
-                  fitMode: '',
+                  fitMode: null,
+                  backgroundColor: null,
+                  positionMode: null,
                   enabled: true,
                   includeSubfolders: false,
                   filterMediaType: '',
@@ -556,7 +631,9 @@ export function PlaylistEditorPage() {
                 mediaType: null,
                 mediaDuration: null,
                 durationSeconds: null,
-                fitMode: '',
+                fitMode: null,
+                backgroundColor: null,
+                positionMode: null,
                 enabled: true,
                 includeSubfolders: false,
                 filterMediaType: '',
@@ -662,6 +739,16 @@ function ResolvedPreviewCard({
                   {item.source === 'folder' ? (
                     <span className="shrink-0 text-slate-400">📁 {item.sourceName}</span>
                   ) : null}
+                  <span
+                    className="shrink-0 text-slate-400"
+                    title={`Fit: ${FIT_MODE_INFO[item.effectiveFitMode].label} (${item.displaySource.replace('_', ' ')}) · bg ${item.effectiveBackgroundColor} · ${item.effectivePositionMode}`}
+                  >
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-sm border border-slate-300 align-middle"
+                      style={{ backgroundColor: item.effectiveBackgroundColor }}
+                    />{' '}
+                    {FIT_MODE_INFO[item.effectiveFitMode].label}
+                  </span>
                   <span className="ml-auto shrink-0 text-slate-400">
                     {item.durationSeconds != null ? formatDuration(item.durationSeconds) : ''}
                   </span>

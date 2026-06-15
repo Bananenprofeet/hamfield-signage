@@ -4,6 +4,7 @@ import type {
   MediaOrientation,
   MediaType,
   PlaybackOrderMode,
+  PositionMode,
   PrioritySelectionMode,
 } from '@signage/shared';
 
@@ -35,7 +36,14 @@ export interface ManifestPlaylistItem {
   position: number;
   /** null = natural duration for video / playlist default for image. */
   durationSeconds: number | null;
+  /**
+   * Resolved (effective) display settings — the backend applies item → playlist
+   * default → platform precedence at sync time so devices render correctly
+   * offline. `fitMode` may be null only in pre-display manifests (→ contain).
+   */
   fitMode: FitMode | null;
+  backgroundColor?: string | null;
+  positionMode?: PositionMode | null;
   enabled: boolean;
   /**
    * Where this entry came from. Dynamic folder entries are resolved into
@@ -68,6 +76,10 @@ export interface ManifestPlaylist {
   defaultImageDurationSeconds: number;
   /** Absent (v1 backends) = manual_order. */
   playbackOrderMode?: PlaybackOrderMode;
+  /** Display defaults; used by the device for priority-rule items (which have no per-item display). */
+  defaultFitMode?: FitMode | null;
+  defaultBackgroundColor?: string | null;
+  defaultPositionMode?: PositionMode | null;
   items: ManifestPlaylistItem[];
   /** Active only when playbackOrderMode is random_with_priority_rules. */
   priorityRules?: ManifestPriorityRule[];
@@ -94,6 +106,10 @@ export interface ManifestEmergency {
   playlistId: string | null;
   mediaAssetId: string | null;
   startedAt: string | null;
+  /** Display settings for a single-media override (resolved; optional). */
+  fitMode?: FitMode | null;
+  backgroundColor?: string | null;
+  positionMode?: PositionMode | null;
 }
 
 export interface SyncManifest {

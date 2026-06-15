@@ -186,6 +186,19 @@ The player UI is intentionally dumb: it renders whatever state the agent compute
 (items, durations, fit modes, status messages) and reports playback events back to
 the agent. All decisions live in testable agent code.
 
+**Display / fit modes.** Each player item carries resolved display settings —
+`fitMode` (`contain`/`cover`/`stretch`/`original`/`scale_down`), a hex
+`backgroundColor` and a `positionMode` (alignment). Precedence is item override →
+playlist default → platform default (`contain`/`#000000`/`center`), computed by a
+single shared resolver (`resolveDisplaySettings`) used identically by the backend
+(manifest + resolved-preview) and the device, so display never diverges and works
+fully offline. The player maps fit modes to CSS `object-fit` (with `object-position`
+/ flex alignment for natural-size modes) and paints the background behind the media;
+fit applies to the post-rotation viewport so all four screen orientations behave
+correctly without ever modifying the uploaded media. A single source of truth (the
+shared `FitMode`/`PositionMode` enums and resolver) keeps the dashboard preview,
+backend and player consistent.
+
 ## Sync protocol
 
 See [sync-protocol.md](sync-protocol.md). Summary: the server builds a per-device

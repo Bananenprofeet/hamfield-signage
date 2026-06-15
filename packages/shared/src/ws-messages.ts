@@ -1,4 +1,11 @@
-import type { CommandType, PlaybackOrderMode, PlayedAs, PrioritySelectionMode } from './enums';
+import type {
+  CommandType,
+  FitMode,
+  PlaybackOrderMode,
+  PlayedAs,
+  PositionMode,
+  PrioritySelectionMode,
+} from './enums';
 
 // ============================================================
 // Device <-> Backend WebSocket protocol (outbound from device)
@@ -87,7 +94,10 @@ export interface PlayerStateItem {
   /** Local URL served by the agent, e.g. /media/<mediaId> */
   url: string;
   durationSeconds: number | null;
-  fitMode: 'contain' | 'cover' | 'stretch' | 'original';
+  /** Resolved (effective) display settings — never null in player state. */
+  fitMode: FitMode;
+  backgroundColor: string;
+  positionMode: PositionMode;
   width: number | null;
   height: number | null;
   name?: string;

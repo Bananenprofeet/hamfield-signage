@@ -24,7 +24,10 @@ export interface ResolvedEntry {
   itemId: string;
   media: MediaAsset;
   durationSeconds: number | null;
+  /** Raw item-level display overrides (folder entries inherit the entry's). */
   fitMode: PlaylistItem['fitMode'];
+  backgroundColor: PlaylistItem['backgroundColor'];
+  positionMode: PlaylistItem['positionMode'];
   source: 'item' | 'folder';
   sourceFolderId?: string;
   sourceFolderPath?: string;
@@ -92,6 +95,8 @@ export function expandPlaylistItems(
         media: item.mediaAsset,
         durationSeconds: item.durationSeconds,
         fitMode: item.fitMode,
+        backgroundColor: item.backgroundColor,
+        positionMode: item.positionMode,
         source: 'item',
       });
       continue;
@@ -114,6 +119,8 @@ export function expandPlaylistItems(
         media,
         durationSeconds: item.durationSeconds,
         fitMode: item.fitMode,
+        backgroundColor: item.backgroundColor,
+        positionMode: item.positionMode,
         source: 'folder',
         sourceFolderId: item.folderId,
         sourceFolderPath: folderPaths.get(item.folderId) ?? undefined,
