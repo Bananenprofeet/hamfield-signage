@@ -86,12 +86,19 @@ docs/           Architecture, API, device install, sync protocol
 
 Requirements: Docker with the compose plugin.
 
+The real `docker-compose.yml` is git-ignored (it can hold secrets); create it
+once from the committed template, then start the stack:
+
 ```bash
+cp docker-compose.example.yml docker-compose.yml
 docker compose up -d --build
 ```
 
 This starts PostgreSQL, Redis, MinIO (+ bucket setup), runs database migrations,
 and launches the API (`:4000`), worker, and dashboard (`:5173`).
+
+For production (HTTPS, real secrets, external object storage), see
+[docs/deployment.md](docs/deployment.md).
 
 Seed demo data:
 
@@ -187,6 +194,7 @@ The device boots into a Chromium kiosk and appears online in the dashboard.
 ## Documentation
 
 - [docs/architecture.md](docs/architecture.md) — components, data flow, security model
+- [docs/deployment.md](docs/deployment.md) — full cloud server deployment (Docker, DNS, TLS)
 - [docs/api.md](docs/api.md) — REST + WebSocket API reference
 - [docs/device-install.md](docs/device-install.md) — device setup, `signage` CLI, updates
 - [docs/sync-protocol.md](docs/sync-protocol.md) — manifest format and sync semantics

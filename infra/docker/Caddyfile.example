@@ -1,0 +1,32 @@
+# ──────────────────────────────────────────────────────────────────────────────
+#  Hamfield Signage — Caddy reverse proxy TEMPLATE
+# ──────────────────────────────────────────────────────────────────────────────
+#  Copy to the real (git-ignored) file and edit the marked values:
+#
+#      cp infra/docker/Caddyfile.example infra/docker/Caddyfile
+#
+#  Caddy obtains and auto-renews Let's Encrypt TLS certificates as long as the
+#  domain below resolves to this server and ports 80/443 are reachable.
+#
+#  With external object storage (Cloudflare R2) there is only ONE domain: the
+#  dashboard, the REST API and the device WebSocket are all same-origin, because
+#  the `web` container serves the SPA and proxies /api/ (incl. the WSS upgrade)
+#  to the api container. Media is served directly by R2, so no media domain.
+#
+#  Everything you MUST change is marked with  # ❗CHANGE
+# ──────────────────────────────────────────────────────────────────────────────
+
+{
+	# Email used by Let's Encrypt for expiry notices.
+	email you@example.com # ❗CHANGE
+}
+
+# Dashboard + REST API + device WebSocket (all same-origin).
+app.example.com { # ❗CHANGE to your real domain
+	reverse_proxy web:80
+
+	# Allow large media uploads to stream through to the API.
+	request_body {
+		max_size 2GB
+	}
+}

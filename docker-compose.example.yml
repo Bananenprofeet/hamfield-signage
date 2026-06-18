@@ -1,0 +1,197 @@
+# ──────────────────────────────────────────────────────────────────────────────
+#  Hamfield Signage — base compose TEMPLATE
+# ──────────────────────────────────────────────────────────────────────────────
+#  This file is a TEMPLATE. Copy it to the real (git-ignored) file and edit:
+#
+#      cp docker-compose.example.yml docker-compose.yml
+#
+#  As shipped it runs a complete, self-contained stack using a bundled MinIO
+#  for object storage — ideal for LOCAL DEVELOPMENT:
+#
+#      docker compose up -d --build
+#
+#  For PRODUCTION on a server (HTTPS, real secrets, external object storage such
+#  as Cloudflare R2) you ALSO layer the production override on top:
+#
+#      docker compose -f docker-compose.yml \
+#                     -f infra/docker/docker-compose.prod.yml up -d --build
+#
+#  >>> For production with Cloudflare R2 (recommended), see docs/deployment.md.
+#      You will: (1) delete the `minio` and `minio-setup` services below,
+#      (2) remove the `minio-setup` entry from the `depends_on` of `api` and
+#      `worker`, and (3) point the S3_* values at R2. The override file adds
+#      Caddy/TLS and the production hardening.
+#
+#  Everything you MUST change for production is marked with  # ❗CHANGE
+# ──────────────────────────────────────────────────────────────────────────────
+
+name: signage-platform
+
+# Single source of truth for the database connection. Referenced by migrate,
+# api and worker via YAML anchors so the credentials can never drift apart
+# (mismatched copies are the classic "P1000 authentication failed" cause).
+x-database-url: &database-url postgresql://signage:signage@postgres:5432/signage # ❗CHANGE the password (and keep it identical to POSTGRES_PASSWORD below)
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: signage
+      POSTGRES_PASSWORD: signage # ❗CHANGE — must match the password inside x-database-url above
+      POSTGRES_DB: signage
+    ports:
+      - "5432:5432" # local dev convenience; the prod override removes this
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U signage"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Object storage (LOCAL DEV ONLY) ─────────────────────────────────────────
+  # Delete `minio` and `minio-setup` for production with external storage (R2).
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: signage
+      MINIO_ROOT_PASSWORD: signage-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  minio-setup:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 signage signage-secret &&
+      mc mb --ignore-existing local/signage-media &&
+      echo 'MinIO bucket ready'
+      "
+  # ─────────────────────────────────────────────────────────────────────────────
+
+  # One-shot: applies all pending Prisma migrations, then exits 0.
+  migrate:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    command: ["node", "packages/database/node_modules/prisma/build/index.js", "migrate", "deploy", "--schema", "packages/database/prisma/schema.prisma"]
+    environment:
+      DATABASE_URL: *database-url
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build:
+      context: .
+      dockerfile: infra/docker/api.Dockerfile
+    environment:
+      DATABASE_URL: *database-url
+      REDIS_URL: redis://redis:6379
+      API_HOST: 0.0.0.0
+      API_PORT: 4000
+      API_PUBLIC_URL: http://localhost:4000 # ❗CHANGE in prod -> https://your-domain (prod override does this)
+      JWT_SECRET: ${JWT_SECRET:-compose-dev-jwt-secret-replace-in-prod-32x} # ❗CHANGE in prod (prod override does this)
+      CORS_ORIGINS: http://localhost:5173,http://localhost:8081 # ❗CHANGE in prod (prod override does this)
+      # Object storage. For LOCAL DEV these point at the bundled MinIO.
+      # For PRODUCTION/R2 set these to your provider (see docs/deployment.md).
+      S3_ENDPOINT: http://minio:9000
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: signage-media
+      S3_ACCESS_KEY: signage
+      S3_SECRET_KEY: signage-secret
+      S3_FORCE_PATH_STYLE: "true"
+      # First-run superadmin bootstrap (created once if no superadmin exists;
+      # never overwritten, password never logged). Min 12 chars.
+      INITIAL_SUPERADMIN_EMAIL: ${INITIAL_SUPERADMIN_EMAIL:-}
+      INITIAL_SUPERADMIN_PASSWORD: ${INITIAL_SUPERADMIN_PASSWORD:-}
+      INITIAL_SUPERADMIN_NAME: ${INITIAL_SUPERADMIN_NAME:-}
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-setup: # remove this entry for production with external storage (R2)
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    build:
+      context: .
+      dockerfile: infra/docker/worker.Dockerfile
+    environment:
+      DATABASE_URL: *database-url
+      REDIS_URL: redis://redis:6379
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: signage-media
+      S3_ACCESS_KEY: signage
+      S3_SECRET_KEY: signage-secret
+      S3_FORCE_PATH_STYLE: "true"
+      WORKER_CONCURRENCY: 2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-setup: # remove this entry for production with external storage (R2)
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    build:
+      context: .
+      dockerfile: infra/docker/web.Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+  # Optional: a simulated signage device. Enable with: docker compose --profile mock-device up
+  mock-device:
+    build:
+      context: .
+      dockerfile: infra/docker/mock-device.Dockerfile
+    profiles: ["mock-device"]
+    environment:
+      MOCK_DEVICE_BACKEND_URL: http://api:4000
+      MOCK_DEVICE_PAIRING_CODE: ${MOCK_DEVICE_PAIRING_CODE:-}
+      MOCK_DEVICE_PORT: 8080
+    ports:
+      - "8081:8080"
+    depends_on:
+      - api
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

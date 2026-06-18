@@ -17,3 +17,9 @@ tmp/
 apps/device-agent/.dev-data/
 apps/mock-device/.dev-data/
 ORIGINAL_PROMPT.txt
+
+# Real, deployable compose / proxy config (contain secrets & host-specific
+# values). Copy from the committed *.example.* templates — see docs/deployment.md.
+/docker-compose.yml
+/infra/docker/docker-compose.prod.yml
+/infra/docker/Caddyfile
