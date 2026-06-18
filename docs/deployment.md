@@ -271,8 +271,13 @@ dc logs -f caddy   # watch TLS issuance
 # Containers healthy?
 dc ps
 
-# API health (through the public domain):
-curl -fsS https://signage.example.com/api/v1/health     # -> {"status":"ok",...}
+# Dashboard served over HTTPS (expect: HTTP/2 200, content-type text/html):
+curl -fsSI https://signage.example.com/ | head -n 5
+
+# API health. The /health route is internal (not behind the /api/ proxy), so
+# check it from inside the api container:
+dc exec api node -e "fetch('http://localhost:4000/health').then(r=>r.text()).then(console.log)"
+# -> {"status":"ok","time":"..."}
 
 # Migrations applied?
 dc exec api node packages/database/node_modules/prisma/build/index.js \
