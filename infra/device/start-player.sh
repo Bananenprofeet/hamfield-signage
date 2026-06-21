@@ -11,9 +11,28 @@ xset s off || true
 xset s noblank || true
 xset -dpms || true
 
-# Find a Chromium binary (name differs across distros).
+# Size the kiosk to the connected display's active mode. No window manager runs
+# in this kiosk, so nothing auto-maximizes Chromium — we must pass the window
+# size explicitly, and some ARM boards come up with an oversized/double-height
+# canvas, so we also pin the framebuffer to the visible mode. Detect the active
+# mode of the first connected output; fall back to 1080p if detection fails.
+SCREEN_W=1920
+SCREEN_H=1080
+if command -v xrandr > /dev/null 2>&1; then
+  OUTPUT="$(xrandr | awk '/ connected/{print $1; exit}')"
+  MODE="$(xrandr | awk '/ connected/{c=1; next} c && /\*/{print $1; exit}')"
+  if [ -n "$OUTPUT" ] && [ -n "$MODE" ]; then
+    xrandr --output "$OUTPUT" --mode "$MODE" --pos 0x0 --fb "$MODE" || true
+    SCREEN_W="${MODE%x*}"
+    SCREEN_H="${MODE#*x}"
+  fi
+fi
+
+# Find a Chromium binary (name differs across distros). Prefer the real
+# `chromium` over `chromium-browser`, which on Ubuntu is a snap stub that
+# cannot run under this systemd service.
 CHROMIUM=""
-for candidate in chromium-browser chromium google-chrome; do
+for candidate in chromium chromium-browser google-chrome; do
   if command -v "$candidate" > /dev/null 2>&1; then
     CHROMIUM="$candidate"
     break
@@ -36,6 +55,9 @@ sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/' "$PROFILE_DIR/Default/Pre
 while true; do
   "$CHROMIUM" \
     --kiosk "$PLAYER_URL" \
+    --window-position=0,0 \
+    --window-size="${SCREEN_W},${SCREEN_H}" \
+    --force-device-scale-factor=1 \
     --user-data-dir="$PROFILE_DIR" \
     --noerrdialogs \
     --disable-infobars \
