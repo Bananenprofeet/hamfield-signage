@@ -73,6 +73,53 @@ build_release() {
   chmod +x "$out_dir/bin/"*
 }
 
+# True when an installed Chromium is a real native binary. On Ubuntu the
+# `chromium`/`chromium-browser` apt packages are snap stubs (a shell wrapper
+# around `snap run`), and the snap cannot run under our systemd service —
+# snap-confine rejects the non-snap service cgroup, so the kiosk never starts.
+# A native build is an ELF executable; the stub is a script.
+chromium_is_native() {
+  local bin path
+  for bin in chromium chromium-browser; do
+    path="$(command -v "$bin" 2> /dev/null)" || continue
+    if file -L "$path" 2> /dev/null | grep -q 'ELF'; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+install_chromium() {
+  if chromium_is_native; then
+    log "Native Chromium already present"
+    return 0
+  fi
+
+  log "Installing Chromium"
+  apt-get install -y chromium-browser 2> /dev/null \
+    || apt-get install -y chromium 2> /dev/null || true
+  if chromium_is_native; then
+    return 0
+  fi
+
+  # Got the Ubuntu snap stub (or nothing). Remove it and install a real .deb
+  # from the xtradeb PPA, which packages Chromium for arm64/amd64 to replace
+  # the snap. (On Debian/Armbian the apt package above is already native and we
+  # never reach here.)
+  log "Distro Chromium is a snap stub — installing native build from ppa:xtradeb/apps"
+  apt-get purge -y chromium chromium-browser 2> /dev/null || true
+  apt-get install -y software-properties-common
+  add-apt-repository -y ppa:xtradeb/apps
+  apt-get update
+  apt-get install -y chromium || true
+
+  if ! chromium_is_native; then
+    echo "Could not install a native (non-snap) Chromium for this distro/arch." >&2
+    echo "Install one manually so 'chromium' is an ELF binary, then re-run." >&2
+    exit 1
+  fi
+}
+
 # --bundle mode: produce a tarball for SIGNAGE_UPDATE_URL and exit.
 if [ -n "$BUNDLE_OUT" ]; then
   WORK="$(mktemp -d)"
@@ -100,9 +147,9 @@ apt-get update
 apt-get install -y curl ca-certificates
 
 if [ "$INSTALL_PLAYER" -eq 1 ]; then
-  log "Installing kiosk packages (X server, Chromium, scrot)"
-  apt-get install -y xserver-xorg xinit x11-xserver-utils scrot
-  apt-get install -y chromium-browser || apt-get install -y chromium
+  log "Installing kiosk packages (X server, scrot)"
+  apt-get install -y xserver-xorg xinit x11-xserver-utils scrot file
+  install_chromium
 fi
 
 build_release /opt/signage
