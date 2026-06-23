@@ -1,10 +1,22 @@
-export const DEVICE_ORIENTATIONS = [
-  'landscape',
-  'portrait',
-  'inverted_landscape',
-  'inverted_portrait',
-] as const;
+/**
+ * The shape of the content canvas the audience sees. This is the *logical*
+ * orientation and is independent of how the physical panel is mounted — see
+ * DEVICE_ROTATIONS for the software compensation applied at render time.
+ */
+export const DEVICE_ORIENTATIONS = ['landscape', 'portrait'] as const;
 export type DeviceOrientation = (typeof DEVICE_ORIENTATIONS)[number];
+
+/**
+ * Software rotation (clockwise degrees) the player applies to the stage to
+ * compensate for how the panel is physically mounted relative to its native
+ * scan-out. Orthogonal to orientation:
+ *   - Native 16:9 landscape panel:            orientation landscape, rotation 0
+ *   - Native 9:16 portrait panel:             orientation portrait,  rotation 0
+ *   - 16:9 panel physically rotated to tall:  orientation portrait,  rotation 90
+ *   - Landscape panel mounted upside-down:    orientation landscape, rotation 180
+ */
+export const DEVICE_ROTATIONS = [0, 90, 180, 270] as const;
+export type DeviceRotation = (typeof DEVICE_ROTATIONS)[number];
 
 export const MEDIA_ORIENTATIONS = ['landscape', 'portrait', 'square'] as const;
 export type MediaOrientation = (typeof MEDIA_ORIENTATIONS)[number];
@@ -97,14 +109,19 @@ export type LogLevel = (typeof LOG_LEVELS)[number];
 export const MEDIA_VARIANT_KINDS = ['original', 'processed', 'fallback', 'thumbnail'] as const;
 export type MediaVariantKind = (typeof MEDIA_VARIANT_KINDS)[number];
 
-/** Does the configured screen orientation present a portrait-shaped viewport? */
+/** Does the configured content orientation present a portrait-shaped viewport? */
 export function isPortraitDeviceOrientation(o: DeviceOrientation): boolean {
-  return o === 'portrait' || o === 'inverted_portrait';
+  return o === 'portrait';
 }
 
 /** Returns the media orientation that best matches a device orientation. */
 export function expectedMediaOrientation(o: DeviceOrientation): MediaOrientation {
   return isPortraitDeviceOrientation(o) ? 'portrait' : 'landscape';
+}
+
+/** A 90°/270° rotation swaps the stage's width and height. */
+export function rotationSwapsAxes(rotation: DeviceRotation): boolean {
+  return rotation === 90 || rotation === 270;
 }
 
 /** True when a media item's shape mismatches the screen's shape (square never mismatches). */

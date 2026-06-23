@@ -24,8 +24,6 @@ import { useAction, useApi } from '../lib/hooks';
 const ORIENTATIONS = [
   ['landscape', 'Landscape'],
   ['portrait', 'Portrait'],
-  ['inverted_landscape', 'Landscape (inverted)'],
-  ['inverted_portrait', 'Portrait (inverted)'],
 ] as const;
 
 const SYNC_TONE: Record<string, 'green' | 'yellow' | 'red' | 'gray'> = {
@@ -113,7 +111,12 @@ export function DevicesPage() {
                   <Td>
                     <OnlineDot online={device.online} />
                   </Td>
-                  <Td>{ORIENTATIONS.find(([v]) => v === device.orientation)?.[1]}</Td>
+                  <Td>
+                    {ORIENTATIONS.find(([v]) => v === device.orientation)?.[1]}
+                    {device.rotation ? (
+                      <span className="text-slate-400"> · {device.rotation}°</span>
+                    ) : null}
+                  </Td>
                   <Td>
                     {device.currentPlaylistName ?? device.currentMediaName ?? (
                       <span className="text-slate-400">—</span>

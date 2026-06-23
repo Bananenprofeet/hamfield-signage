@@ -62,6 +62,7 @@ export class PlayerServer {
       revision: 0,
       deviceName: 'Signage device',
       orientation: 'landscape',
+      rotation: 0,
       source: 'none',
       playlistId: null,
       playlistName: null,

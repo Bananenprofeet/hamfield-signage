@@ -119,6 +119,7 @@ export async function deviceApiRoutes(app: FastifyInstance): Promise<void> {
         organizationId: found.organizationId,
         settings: {
           orientation: found.orientation as PairResponse['settings']['orientation'],
+          rotation: found.rotation as PairResponse['settings']['rotation'],
           timezone: found.timezone,
         },
       };

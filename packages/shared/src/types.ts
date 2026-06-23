@@ -2,6 +2,7 @@ import type {
   CommandStatus,
   CommandType,
   DeviceOrientation,
+  DeviceRotation,
   FitMode,
   GlobalRole,
   MediaOrientation,
@@ -72,6 +73,8 @@ export interface DeviceDto {
   name: string;
   description: string | null;
   orientation: DeviceOrientation;
+  /** Software rotation (clockwise degrees) to compensate for physical mounting. */
+  rotation: DeviceRotation;
   timezone: string;
   online: boolean;
   paired: boolean;
@@ -435,6 +438,7 @@ export interface PairResponse {
   organizationId: string;
   settings: {
     orientation: DeviceOrientation;
+    rotation: DeviceRotation;
     timezone: string;
   };
 }

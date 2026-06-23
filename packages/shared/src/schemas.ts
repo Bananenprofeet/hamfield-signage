@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   COMMAND_TYPES,
   DEVICE_ORIENTATIONS,
+  DEVICE_ROTATIONS,
   FIT_MODES,
   LOG_LEVELS,
   ORG_ROLES,
@@ -77,10 +78,21 @@ export const updateMemberSchema = z.object({
 });
 
 // ---------- Devices ----------
+/** Accepts the discrete rotation steps (0/90/180/270) as a precise literal union. */
+export const rotationSchema = z.union(
+  DEVICE_ROTATIONS.map((r) => z.literal(r)) as [
+    z.ZodLiteral<0>,
+    z.ZodLiteral<90>,
+    z.ZodLiteral<180>,
+    z.ZodLiteral<270>,
+  ],
+);
+
 export const createDeviceSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional(),
   orientation: z.enum(DEVICE_ORIENTATIONS).default('landscape'),
+  rotation: rotationSchema.default(0),
   timezone: timezoneSchema.default('UTC'),
   groupIds: z.array(z.string()).optional(),
 });
@@ -89,6 +101,7 @@ export const updateDeviceSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   description: z.string().max(500).nullable().optional(),
   orientation: z.enum(DEVICE_ORIENTATIONS).optional(),
+  rotation: rotationSchema.optional(),
   timezone: timezoneSchema.optional(),
   defaultPlaylistId: z.string().nullable().optional(),
   groupIds: z.array(z.string()).optional(),

@@ -63,21 +63,21 @@ dashboard forces a password change before any other action.
 
 ## Devices (screens)
 
-| Method | Path                                                     | Notes                                                                                                          |
-| ------ | -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| GET    | `/orgs/:orgId/devices`                                   | All screens with online/sync status and latest metrics.                                                        |
-| POST   | `/orgs/:orgId/devices`                                   | `{ name, ... }` — creates the screen **and returns a one-time pairing code**.                                  |
-| GET    | `/orgs/:orgId/devices/:deviceId`                         | Detail (settings, status, last heartbeat, active command counts).                                              |
-| PATCH  | `/orgs/:orgId/devices/:deviceId`                         | Update name, orientation, timezone, default playlist, group membership, etc. Changes bump the device manifest. |
-| DELETE | `/orgs/:orgId/devices/:deviceId`                         | Soft delete; revokes the device token.                                                                         |
-| POST   | `/orgs/:orgId/devices/:deviceId/regenerate-pairing-code` | Editor. New single-use code (invalidates the previous unused one).                                             |
-| POST   | `/orgs/:orgId/devices/:deviceId/revoke-token`            | Invalidates the device token; the device must re-pair.                                                         |
-| POST   | `/orgs/:orgId/devices/:deviceId/commands`                | `{ type, payload? }` — enqueue one of the command types below; pushed instantly over WS when connected.        |
-| GET    | `/orgs/:orgId/devices/:deviceId/commands`                | Recent commands with status (`pending → sent → acked → completed/failed/expired`).                             |
-| GET    | `/orgs/:orgId/devices/:deviceId/logs?limit=`             | Recent device logs.                                                                                            |
-| GET    | `/orgs/:orgId/devices/:deviceId/heartbeats`              | Recent heartbeats (CPU, memory, disk, temperature, uptime).                                                    |
-| GET    | `/orgs/:orgId/devices/:deviceId/playback-events`         | Recent playback start/end/error/skip events.                                                                   |
-| GET    | `/orgs/:orgId/devices/:deviceId/screenshot`              | Latest screenshot (presigned URL + metadata). Request a fresh one with the `take_screenshot` command.          |
+| Method | Path                                                     | Notes                                                                                                                    |
+| ------ | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| GET    | `/orgs/:orgId/devices`                                   | All screens with online/sync status and latest metrics.                                                                  |
+| POST   | `/orgs/:orgId/devices`                                   | `{ name, ... }` — creates the screen **and returns a one-time pairing code**.                                            |
+| GET    | `/orgs/:orgId/devices/:deviceId`                         | Detail (settings, status, last heartbeat, active command counts).                                                        |
+| PATCH  | `/orgs/:orgId/devices/:deviceId`                         | Update name, orientation, rotation, timezone, default playlist, group membership, etc. Changes bump the device manifest. |
+| DELETE | `/orgs/:orgId/devices/:deviceId`                         | Soft delete; revokes the device token.                                                                                   |
+| POST   | `/orgs/:orgId/devices/:deviceId/regenerate-pairing-code` | Editor. New single-use code (invalidates the previous unused one).                                                       |
+| POST   | `/orgs/:orgId/devices/:deviceId/revoke-token`            | Invalidates the device token; the device must re-pair.                                                                   |
+| POST   | `/orgs/:orgId/devices/:deviceId/commands`                | `{ type, payload? }` — enqueue one of the command types below; pushed instantly over WS when connected.                  |
+| GET    | `/orgs/:orgId/devices/:deviceId/commands`                | Recent commands with status (`pending → sent → acked → completed/failed/expired`).                                       |
+| GET    | `/orgs/:orgId/devices/:deviceId/logs?limit=`             | Recent device logs.                                                                                                      |
+| GET    | `/orgs/:orgId/devices/:deviceId/heartbeats`              | Recent heartbeats (CPU, memory, disk, temperature, uptime).                                                              |
+| GET    | `/orgs/:orgId/devices/:deviceId/playback-events`         | Recent playback start/end/error/skip events.                                                                             |
+| GET    | `/orgs/:orgId/devices/:deviceId/screenshot`              | Latest screenshot (presigned URL + metadata). Request a fresh one with the `take_screenshot` command.                    |
 
 ### Command types
 
@@ -85,6 +85,10 @@ dashboard forces a password change before any other action.
 `take_screenshot`, `identify`, `set_orientation`, `set_playlist`,
 `update_settings`, `show_emergency`, `stop_emergency`, `send_logs`,
 `health_check`, `software_update`.
+
+`set_orientation` takes `payload: { orientation?: 'landscape' | 'portrait', rotation?: 0 | 90 | 180 | 270 }`
+— send either or both. `orientation` is the content canvas shape; `rotation` is
+software compensation for how the panel is physically mounted.
 
 ## Device groups
 

@@ -19,7 +19,8 @@ or corrupted sync can never break playback. Types live in
 
   "settings": {
     "name": "Lobby screen",
-    "orientation": "landscape", // landscape | portrait | inverted_*
+    "orientation": "landscape", // content canvas shape: landscape | portrait
+    "rotation": 0, // software mounting rotation: 0 | 90 | 180 | 270 (absent = 0)
     "timezone": "Europe/Amsterdam",
     "defaultPlaylistId": "pl_…", // or null
   },
