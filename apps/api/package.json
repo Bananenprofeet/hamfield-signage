@@ -10,7 +10,8 @@
     "start": "node dist/main.js",
     "test": "vitest run",
     "create-superadmin": "tsx src/cli/create-superadmin.ts",
-    "reset-superadmin-password": "tsx src/cli/reset-superadmin-password.ts"
+    "reset-superadmin-password": "tsx src/cli/reset-superadmin-password.ts",
+    "reprocess-media": "tsx src/cli/reprocess-media.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.682.0",
