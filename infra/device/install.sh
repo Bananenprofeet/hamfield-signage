@@ -73,16 +73,29 @@ build_release() {
   chmod +x "$out_dir/bin/"*
 }
 
-# True when an installed Chromium is a real native binary. On Ubuntu the
-# `chromium`/`chromium-browser` apt packages are snap stubs (a shell wrapper
-# around `snap run`), and the snap cannot run under our systemd service —
-# snap-confine rejects the non-snap service cgroup, so the kiosk never starts.
-# A native build is an ELF executable; the stub is a script.
+# True when an installed Chromium is usable under our systemd service. On Ubuntu
+# the `chromium`/`chromium-browser` apt packages are snap stubs (a shell wrapper
+# around `snap run`), and the snap cannot run under our service — snap-confine
+# rejects the non-snap service cgroup, so the kiosk never starts.
+#
+# A real native build is an ELF executable. But a wrapper *script* is NOT
+# automatically a snap stub: Raspberry Pi OS ships `/usr/bin/chromium` as a shell
+# wrapper that only adds Pi-specific flags and execs the real binary in
+# /usr/lib/chromium. So a script counts as native unless it actually routes
+# through snap — otherwise we would wrongly purge a perfectly good Pi Chromium.
 chromium_is_native() {
   local bin path
   for bin in chromium chromium-browser; do
     path="$(command -v "$bin" 2> /dev/null)" || continue
     if file -L "$path" 2> /dev/null | grep -q 'ELF'; then
+      return 0
+    fi
+    # A wrapper script that does not invoke snap (e.g. the Raspberry Pi launcher)
+    # still drives a real Chromium — treat it as native.
+    if file -L "$path" 2> /dev/null | grep -qi 'script'; then
+      if grep -qi 'snap' "$path" 2> /dev/null; then
+        continue
+      fi
       return 0
     fi
   done
