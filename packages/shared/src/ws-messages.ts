@@ -119,7 +119,10 @@ export interface PlayerState {
   /** Increments whenever the playable content changes. */
   revision: number;
   deviceName: string;
-  orientation: 'landscape' | 'portrait' | 'inverted_landscape' | 'inverted_portrait';
+  /** Content canvas shape; drives content-matching and the dashboard preview. */
+  orientation: 'landscape' | 'portrait';
+  /** Software rotation (clockwise degrees) the player applies to the stage. */
+  rotation: 0 | 90 | 180 | 270;
   source: 'emergency' | 'schedule' | 'default' | 'none';
   playlistId: string | null;
   playlistName: string | null;

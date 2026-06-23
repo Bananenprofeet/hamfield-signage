@@ -28,21 +28,23 @@ body {
   background: #000;
 }
 
-/* Rotated orientations: swap dimensions and rotate around the center. */
-#stage.portrait,
-#stage.inverted_portrait {
+/* Software rotation compensating for physical mounting. 90°/270° swap the
+   stage dimensions (so it still fills the rotated panel) and rotate around the
+   center; 180° just flips in place. */
+#stage.rot-90,
+#stage.rot-270 {
   width: 100vh;
   height: 100vw;
   top: 50%;
   left: 50%;
 }
-#stage.portrait {
+#stage.rot-90 {
   transform: translate(-50%, -50%) rotate(90deg);
 }
-#stage.inverted_portrait {
-  transform: translate(-50%, -50%) rotate(-90deg);
+#stage.rot-270 {
+  transform: translate(-50%, -50%) rotate(270deg);
 }
-#stage.inverted_landscape {
+#stage.rot-180 {
   transform: rotate(180deg);
 }
 

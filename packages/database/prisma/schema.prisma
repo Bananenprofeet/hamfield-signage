@@ -48,8 +48,6 @@ enum PrioritySelectionMode {
 enum DeviceOrientation {
   landscape
   portrait
-  inverted_landscape
-  inverted_portrait
 }
 
 enum MediaType {
@@ -210,6 +208,9 @@ model Device {
   name           String
   description    String?
   orientation    DeviceOrientation @default(landscape)
+  // Software rotation (clockwise degrees: 0/90/180/270) compensating for how
+  // the panel is physically mounted; orthogonal to orientation.
+  rotation       Int               @default(0)
   timezone       String            @default("UTC")
 
   // Pairing. The code is short-lived, single-use and shown in the dashboard

@@ -32,6 +32,7 @@ export function computePlayerState(
     return {
       deviceName: 'Signage device',
       orientation: 'landscape',
+      rotation: 0,
       source: 'none',
       playlistId: null,
       playlistName: null,
@@ -59,6 +60,8 @@ export function computePlayerState(
   const base = {
     deviceName: manifest.settings.name,
     orientation: manifest.settings.orientation,
+    // Absent in v1 manifests → no rotation.
+    rotation: manifest.settings.rotation ?? 0,
     source: resolution.source,
     paired: ctx.paired,
     online: ctx.online,

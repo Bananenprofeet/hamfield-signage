@@ -7,6 +7,7 @@ import type {
   DeviceLogDto,
   PlaylistDto,
 } from '@signage/shared';
+import { rotationSwapsAxes } from '@signage/shared';
 import {
   Badge,
   Button,
@@ -285,6 +286,61 @@ function OverviewTab({
   );
 }
 
+/**
+ * Schematic of how content maps onto the physical panel: the outer rectangle is
+ * the panel in its native scan-out shape; the inner rectangle is the content
+ * canvas, rotated by `rotation` to show how it lands on the mounted screen.
+ */
+function OrientationPreview({
+  orientation,
+  rotation,
+}: {
+  orientation: DeviceDto['orientation'];
+  rotation: DeviceDto['rotation'];
+}) {
+  const contentPortrait = orientation === 'portrait';
+  // A 90/270° mount swaps the panel's native shape relative to the content.
+  const panelPortrait = contentPortrait !== rotationSwapsAxes(rotation);
+
+  const long = 132;
+  const short = Math.round((long * 9) / 16);
+  const panelW = panelPortrait ? short : long;
+  const panelH = panelPortrait ? long : short;
+  // The content rect matches the panel footprint once rotated, so before the
+  // rotate transform it has the panel's dimensions with axes swapped on 90/270.
+  const contentW = rotationSwapsAxes(rotation) ? panelH : panelW;
+  const contentH = rotationSwapsAxes(rotation) ? panelW : panelH;
+
+  return (
+    <div className="flex items-center gap-4 rounded-md border border-slate-200 bg-slate-50 p-3">
+      <div
+        className="relative flex flex-shrink-0 items-center justify-center rounded-sm border-2 border-slate-400 bg-white"
+        style={{ width: panelW, height: panelH }}
+        aria-hidden
+      >
+        <div
+          className="flex items-center justify-center rounded-sm bg-blue-500/85 text-[10px] font-semibold text-white"
+          style={{ width: contentW, height: contentH, transform: `rotate(${rotation}deg)` }}
+        >
+          ▲
+        </div>
+      </div>
+      <div className="text-xs text-slate-600">
+        <p className="font-medium text-slate-700">
+          {contentPortrait ? 'Portrait' : 'Landscape'} content
+          {rotation !== 0 ? `, rotated ${rotation}°` : ''}
+        </p>
+        <p className="mt-0.5 text-slate-500">
+          Physical panel: {panelPortrait ? 'portrait (9:16)' : 'landscape (16:9)'}.{' '}
+          {rotation === 0
+            ? 'Mounted in its native orientation.'
+            : '▲ marks the top of the content as the viewer sees it.'}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function SettingsTab({
   orgId,
   device,
@@ -301,6 +357,7 @@ function SettingsTab({
   const [name, setName] = useState(device.name);
   const [description, setDescription] = useState(device.description ?? '');
   const [orientation, setOrientation] = useState(device.orientation);
+  const [rotation, setRotation] = useState<DeviceDto['rotation']>(device.rotation);
   const [timezone, setTimezone] = useState(device.timezone);
   const [defaultPlaylistId, setDefaultPlaylistId] = useState(device.defaultPlaylistId ?? '');
   const [groupIds, setGroupIds] = useState<string[]>(device.groupIds);
@@ -309,6 +366,7 @@ function SettingsTab({
     setName(device.name);
     setDescription(device.description ?? '');
     setOrientation(device.orientation);
+    setRotation(device.rotation);
     setTimezone(device.timezone);
     setDefaultPlaylistId(device.defaultPlaylistId ?? '');
     setGroupIds(device.groupIds);
@@ -319,6 +377,7 @@ function SettingsTab({
       name,
       description: description || null,
       orientation,
+      rotation,
       timezone,
       defaultPlaylistId: defaultPlaylistId || null,
       groupIds,
@@ -352,17 +411,36 @@ function SettingsTab({
           <Field label="Description">
             <Input value={description} onChange={(e) => setDescription(e.target.value)} />
           </Field>
-          <Field label="Orientation">
-            <Select
-              value={orientation}
-              onChange={(e) => setOrientation(e.target.value as DeviceDto['orientation'])}
-            >
-              <option value="landscape">Landscape</option>
-              <option value="portrait">Portrait</option>
-              <option value="inverted_landscape">Landscape (inverted)</option>
-              <option value="inverted_portrait">Portrait (inverted)</option>
-            </Select>
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Content orientation" hint="Shape of the content the audience sees">
+              <Select
+                value={orientation}
+                onChange={(e) => setOrientation(e.target.value as DeviceDto['orientation'])}
+              >
+                <option value="landscape">Landscape (16:9)</option>
+                <option value="portrait">Portrait (9:16)</option>
+              </Select>
+            </Field>
+            <Field label="Rotation" hint="Compensates for physical mounting">
+              <Select
+                value={String(rotation)}
+                onChange={(e) => setRotation(Number(e.target.value) as DeviceDto['rotation'])}
+              >
+                <option value="0">0°</option>
+                <option value="90">90° clockwise</option>
+                <option value="180">180°</option>
+                <option value="270">270° clockwise</option>
+              </Select>
+            </Field>
+          </div>
+          <OrientationPreview orientation={orientation} rotation={rotation} />
+          {rotation !== 0 ? (
+            <p className="text-xs text-slate-500">
+              The player rotates its output by {rotation}° in software — use this when the panel is
+              physically mounted turned (e.g. a 16:9 screen rotated to portrait). Native 9:16 panels
+              need 0°.
+            </p>
+          ) : null}
           <Field label="Timezone">
             <Input value={timezone} onChange={(e) => setTimezone(e.target.value)} required />
           </Field>

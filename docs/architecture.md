@@ -194,8 +194,13 @@ single shared resolver (`resolveDisplaySettings`) used identically by the backen
 (manifest + resolved-preview) and the device, so display never diverges and works
 fully offline. The player maps fit modes to CSS `object-fit` (with `object-position`
 / flex alignment for natural-size modes) and paints the background behind the media;
-fit applies to the post-rotation viewport so all four screen orientations behave
-correctly without ever modifying the uploaded media. A single source of truth (the
+fit applies to the post-rotation viewport so every content orientation and
+mounting rotation behaves correctly without ever modifying the uploaded media.
+Screen setup is two orthogonal axes: `orientation` (the content canvas shape —
+landscape or portrait, used for content-matching and previews) and `rotation`
+(0/90/180/270° software compensation for how the panel is physically mounted).
+A native 9:16 panel is `portrait` + 0°; a 16:9 panel turned on its side to show
+portrait content is `portrait` + 90°. A single source of truth (the
 shared `FitMode`/`PositionMode` enums and resolver) keeps the dashboard preview,
 backend and player consistent.
 

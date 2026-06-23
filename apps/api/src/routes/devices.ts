@@ -1,5 +1,13 @@
 import type { FastifyInstance } from 'fastify';
-import { createDeviceSchema, issueCommandSchema, updateDeviceSchema } from '@signage/shared';
+import {
+  DEVICE_ORIENTATIONS,
+  DEVICE_ROTATIONS,
+  createDeviceSchema,
+  issueCommandSchema,
+  updateDeviceSchema,
+  type DeviceOrientation,
+  type DeviceRotation,
+} from '@signage/shared';
 import { authenticateUser, requireOrgRole } from '../plugins/auth';
 import { badRequest, notFound } from '../lib/errors';
 import { generatePairingCode } from '../lib/tokens';
@@ -71,6 +79,7 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
         name: body.name,
         description: body.description,
         orientation: body.orientation,
+        rotation: body.rotation,
         timezone: body.timezone,
         pairingCode: generatePairingCode(),
         pairingCodeExpiresAt: new Date(Date.now() + env.PAIRING_CODE_TTL_MINUTES * 60_000),
@@ -137,6 +146,7 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
           name: body.name,
           description: body.description,
           orientation: body.orientation,
+          rotation: body.rotation,
           timezone: body.timezone,
           defaultPlaylistId: body.defaultPlaylistId,
         },
@@ -200,16 +210,29 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
     // Commands that change server-side state apply it immediately, then the
     // device is told to sync.
     if (body.type === 'set_orientation') {
-      const orientation = body.payload.orientation;
-      if (
-        orientation !== 'landscape' &&
-        orientation !== 'portrait' &&
-        orientation !== 'inverted_landscape' &&
-        orientation !== 'inverted_portrait'
-      ) {
-        throw badRequest('payload.orientation must be a valid orientation');
+      // Both axes are optional so a caller can change just the content
+      // orientation, just the physical rotation, or both in one command.
+      const { orientation, rotation } = body.payload as {
+        orientation?: unknown;
+        rotation?: unknown;
+      };
+      const data: { orientation?: DeviceOrientation; rotation?: DeviceRotation } = {};
+      if (orientation !== undefined) {
+        if (!(DEVICE_ORIENTATIONS as readonly unknown[]).includes(orientation)) {
+          throw badRequest(`payload.orientation must be one of ${DEVICE_ORIENTATIONS.join(', ')}`);
+        }
+        data.orientation = orientation as DeviceOrientation;
       }
-      await prisma.device.update({ where: { id: device.id }, data: { orientation } });
+      if (rotation !== undefined) {
+        if (!(DEVICE_ROTATIONS as readonly unknown[]).includes(rotation)) {
+          throw badRequest(`payload.rotation must be one of ${DEVICE_ROTATIONS.join(', ')}`);
+        }
+        data.rotation = rotation as DeviceRotation;
+      }
+      if (data.orientation === undefined && data.rotation === undefined) {
+        throw badRequest('set_orientation requires payload.orientation and/or payload.rotation');
+      }
+      await prisma.device.update({ where: { id: device.id }, data });
     } else if (body.type === 'set_playlist') {
       const playlistId = body.payload.playlistId;
       if (typeof playlistId !== 'string' && playlistId !== null) {

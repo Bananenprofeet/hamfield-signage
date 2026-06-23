@@ -1,5 +1,6 @@
 import type {
   DeviceOrientation,
+  DeviceRotation,
   FitMode,
   MediaOrientation,
   MediaType,
@@ -11,6 +12,8 @@ import type {
 export interface ManifestDeviceSettings {
   name: string;
   orientation: DeviceOrientation;
+  /** Software rotation compensating for physical mounting. Absent = 0 (v1 compat). */
+  rotation?: DeviceRotation;
   timezone: string;
   defaultPlaylistId: string | null;
 }
@@ -147,6 +150,7 @@ export interface SyncRequestInfo {
   cachedChecksums: Record<string, string>;
   freeDiskBytes: number | null;
   orientation: DeviceOrientation;
+  rotation?: DeviceRotation;
   timezone: string;
   capabilities: string[];
 }

@@ -178,6 +178,7 @@ export function serializeDevice(
     name: device.name,
     description: device.description,
     orientation: device.orientation as DeviceDto['orientation'],
+    rotation: device.rotation as DeviceDto['rotation'],
     timezone: device.timezone,
     online: isDeviceOnline(device),
     paired: device.pairedAt != null,

@@ -346,8 +346,11 @@ function hasPlayableContent(s: PlayerState): boolean {
 function applyState(next: PlayerState): void {
   state = next;
 
-  stage.classList.remove('portrait', 'inverted_portrait', 'inverted_landscape');
-  if (next.orientation !== 'landscape') stage.classList.add(next.orientation);
+  // The stage is rotated purely to compensate for physical mounting; the
+  // content orientation (next.orientation) only affects content-matching and
+  // the dashboard preview, not how we render here.
+  stage.classList.remove('rot-90', 'rot-180', 'rot-270');
+  if (next.rotation) stage.classList.add(`rot-${next.rotation}`);
 
   updateFallbackContent(next);
   offlineDot.classList.toggle('hidden', next.online || !hasPlayableContent(next));

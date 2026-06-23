@@ -272,6 +272,7 @@ export async function buildSyncManifest(
     settings: {
       name: device.name,
       orientation: device.orientation as SyncManifest['settings']['orientation'],
+      rotation: device.rotation as SyncManifest['settings']['rotation'],
       timezone: device.timezone,
       defaultPlaylistId:
         device.defaultPlaylistId && existingPlaylistIds.has(device.defaultPlaylistId)
