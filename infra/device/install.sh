@@ -160,8 +160,12 @@ apt-get update
 apt-get install -y curl ca-certificates
 
 if [ "$INSTALL_PLAYER" -eq 1 ]; then
-  log "Installing kiosk packages (X server, scrot)"
-  apt-get install -y xserver-xorg xinit x11-xserver-utils scrot file
+  log "Installing kiosk packages (X server, scrot, Vulkan)"
+  # mesa-vulkan-drivers provides the Vulkan ICD (V3DV on Raspberry Pi); vulkan-tools
+  # provides vulkaninfo, which start-player.sh uses to detect a usable GPU. Both are
+  # best-effort: on boards without a Vulkan driver the kiosk falls back to software.
+  apt-get install -y xserver-xorg xinit x11-xserver-utils scrot file \
+    mesa-vulkan-drivers vulkan-tools || true
   install_chromium
 fi
 

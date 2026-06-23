@@ -44,21 +44,42 @@ Flags:
 
 ## Configuration (`/etc/signage/agent.env`)
 
-| Key                      | Default                          | Purpose                                             |
-| ------------------------ | -------------------------------- | --------------------------------------------------- |
-| `SIGNAGE_SERVER_URL`     | —                                | Backend base URL                                    |
-| `SIGNAGE_PAIRING_CODE`   | —                                | Consumed once at first start; cleared after pairing |
-| `SIGNAGE_DATA_DIR`       | `/var/lib/signage`               | SQLite DB, cached media, device token               |
-| `SIGNAGE_PLAYER_PORT`    | `8080`                           | Local player server port (127.0.0.1)                |
-| `SIGNAGE_PLAYER_UI_DIR`  | `/opt/signage/player-ui`         | Built player UI                                     |
-| `SIGNAGE_SCREENSHOT_CMD` | `/opt/signage/bin/screenshot.sh` | Used by `take_screenshot`                           |
-| `SIGNAGE_UPDATE_CMD`     | `/opt/signage/bin/update.sh`     | Used by `software_update`                           |
-| `SIGNAGE_UPDATE_URL`     | (unset)                          | Release tarball URL for self-update                 |
-| `SIGNAGE_ALLOW_REBOOT`   | `true`                           | Whether `reboot_device` is honored                  |
-| `SIGNAGE_PLAYER_SERVICE` | `signage-player.service`         | Unit restarted by `restart_player`                  |
-| `SIGNAGE_LOG_LEVEL`      | `info`                           | Agent log level                                     |
+| Key                            | Default                          | Purpose                                                          |
+| ------------------------------ | -------------------------------- | ---------------------------------------------------------------- |
+| `SIGNAGE_SERVER_URL`           | —                                | Backend base URL                                                 |
+| `SIGNAGE_PAIRING_CODE`         | —                                | Consumed once at first start; cleared after pairing              |
+| `SIGNAGE_DATA_DIR`             | `/var/lib/signage`               | SQLite DB, cached media, device token                            |
+| `SIGNAGE_PLAYER_PORT`          | `8080`                           | Local player server port (127.0.0.1)                             |
+| `SIGNAGE_PLAYER_UI_DIR`        | `/opt/signage/player-ui`         | Built player UI                                                  |
+| `SIGNAGE_SCREENSHOT_CMD`       | `/opt/signage/bin/screenshot.sh` | Used by `take_screenshot`                                        |
+| `SIGNAGE_UPDATE_CMD`           | `/opt/signage/bin/update.sh`     | Used by `software_update`                                        |
+| `SIGNAGE_UPDATE_URL`           | (unset)                          | Release tarball URL for self-update                              |
+| `SIGNAGE_ALLOW_REBOOT`         | `true`                           | Whether `reboot_device` is honored                               |
+| `SIGNAGE_PLAYER_SERVICE`       | `signage-player.service`         | Unit restarted by `restart_player`                               |
+| `SIGNAGE_LOG_LEVEL`            | `info`                           | Agent log level                                                  |
+| `SIGNAGE_KIOSK_GPU`            | `auto`                           | Chromium GPU backend: `auto` \| `vulkan` \| `gles` \| `software` |
+| `SIGNAGE_CHROMIUM_EXTRA_FLAGS` | (unset)                          | Extra space-separated flags appended to the kiosk Chromium       |
 
 Edit with `signage config set KEY VALUE` (restarts the agent automatically).
+
+### Kiosk GPU acceleration
+
+Chromium's GPU stack is fragile on ARM SBCs, so `start-player.sh` selects a
+backend per board (override with `SIGNAGE_KIOSK_GPU`):
+
+- **Raspberry Pi 4/5** — auto-detected (via `vulkaninfo`, driver `V3DV`) and run
+  with **ANGLE-on-Vulkan**, which composites through the V3D GPU and eliminates
+  the screen tearing that software compositing produces.
+- **ODROID C4 (Mali) and any board without a usable hardware Vulkan driver** —
+  fall back to Chromium's **software** compositing. It always renders and never
+  crash-loops the GPU process; expect tearing and no hardware video decode.
+
+`auto` only enables Vulkan when a hardware (non-`lavapipe`) Vulkan driver is
+present, so a misdetect can't strand a screen. To experiment on other hardware,
+force a mode, e.g. `signage config set SIGNAGE_KIOSK_GPU vulkan`, then
+`signage restart-player` and check `signage player-logs` for repeated
+`Exiting GPU process` lines (= that backend doesn't work there; revert to
+`software`).
 
 ## The `signage` CLI
 

@@ -43,6 +43,76 @@ if [ -z "$CHROMIUM" ]; then
   exit 1
 fi
 
+# --- GPU backend selection ---------------------------------------------------
+# Chromium's GPU stack is fragile and board-specific on ARM SBCs, so we pick a
+# backend per board instead of forcing one everywhere:
+#   * Raspberry Pi (V3D / V3DV driver): ANGLE-on-Vulkan initialises cleanly and
+#     removes the screen tearing you otherwise get from software compositing.
+#   * ODROID C4 (Mali) and any board without a usable Vulkan driver: stay on
+#     Chromium's default software compositing — slower, but it always renders
+#     and never crash-loops the GPU process.
+# Auto-detection can be overridden per device in /etc/signage/agent.env:
+#   SIGNAGE_KIOSK_GPU            = auto (default) | vulkan | gles | software
+#   SIGNAGE_CHROMIUM_EXTRA_FLAGS = extra space-separated chromium flags
+GPU_MODE="${SIGNAGE_KIOSK_GPU:-auto}"
+
+# Echoes the lowercase name of a hardware (non-software) Vulkan driver, if any.
+# lavapipe/llvmpipe are CPU implementations and give us nothing over software
+# compositing, so they don't count.
+hardware_vulkan_driver() {
+  command -v vulkaninfo > /dev/null 2>&1 || return 1
+  vulkaninfo --summary 2> /dev/null \
+    | awk -F= '/driverName/ { gsub(/[ \t]/, "", $2); print tolower($2) }' \
+    | grep -viE 'lavapipe|llvmpipe|software|swiftshader' \
+    | head -1
+}
+
+VK_DRIVER=""
+if [ "$GPU_MODE" = auto ]; then
+  VK_DRIVER="$(hardware_vulkan_driver || true)"
+  case "$VK_DRIVER" in
+    *v3dv*) GPU_MODE=vulkan ;; # Raspberry Pi 4/5
+    *) GPU_MODE=software ;;    # ODROID C4 and everything else: safe default
+  esac
+fi
+
+GPU_FLAGS=()
+case "$GPU_MODE" in
+  vulkan)
+    GPU_FLAGS=(
+      --ignore-gpu-blocklist
+      --enable-gpu-rasterization
+      --enable-zero-copy
+      --use-gl=angle
+      --use-angle=vulkan
+      --enable-features=Vulkan
+    )
+    ;;
+  gles)
+    GPU_FLAGS=(
+      --ignore-gpu-blocklist
+      --enable-gpu-rasterization
+      --enable-zero-copy
+      --use-gl=angle
+      --use-angle=gles
+    )
+    ;;
+  *)
+    # software / off / unknown: do not force a GPU path; Chromium composites in
+    # software, which renders on every board.
+    GPU_FLAGS=()
+    ;;
+esac
+
+# Optional admin-supplied extra flags (space-separated).
+EXTRA_FLAGS=()
+if [ -n "${SIGNAGE_CHROMIUM_EXTRA_FLAGS:-}" ]; then
+  # shellcheck disable=SC2206
+  EXTRA_FLAGS=(${SIGNAGE_CHROMIUM_EXTRA_FLAGS})
+fi
+
+echo "kiosk: GPU mode=${GPU_MODE} (hardware vulkan driver: ${VK_DRIVER:-none})" >&2
+
 PROFILE_DIR=/var/lib/signage/chromium-profile
 mkdir -p "$PROFILE_DIR"
 
@@ -55,6 +125,8 @@ sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/' "$PROFILE_DIR/Default/Pre
 while true; do
   "$CHROMIUM" \
     --kiosk "$PLAYER_URL" \
+    "${GPU_FLAGS[@]}" \
+    "${EXTRA_FLAGS[@]}" \
     --window-position=0,0 \
     --window-size="${SCREEN_W},${SCREEN_H}" \
     --force-device-scale-factor=1 \
