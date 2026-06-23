@@ -14,11 +14,11 @@ device/player side see [device-install.md](device-install.md).
 
 The compose and reverse-proxy files come in two flavours:
 
-| Committed template (in git)                       | Real file you create (git-ignored)         |
-| ------------------------------------------------- | ------------------------------------------- |
-| `docker-compose.example.yml`                      | `docker-compose.yml`                        |
-| `infra/docker/docker-compose.prod.example.yml`    | `infra/docker/docker-compose.prod.yml`      |
-| `infra/docker/Caddyfile.example`                  | `infra/docker/Caddyfile`                    |
+| Committed template (in git)                    | Real file you create (git-ignored)     |
+| ---------------------------------------------- | -------------------------------------- |
+| `docker-compose.example.yml`                   | `docker-compose.yml`                   |
+| `infra/docker/docker-compose.prod.example.yml` | `infra/docker/docker-compose.prod.yml` |
+| `infra/docker/Caddyfile.example`               | `infra/docker/Caddyfile`               |
 
 The real files contain your secrets and host-specific values, so they are
 **git-ignored** (see `.gitignore`) and never committed. You create them by
@@ -40,18 +40,30 @@ Everything runs as containers on one host, on a private Docker network. Only the
 **reverse proxy** is exposed to the internet. Object storage is external
 (Cloudflare R2), reached by browsers directly.
 
-```
-                       ┌──────────────────── your server ────────────────────┐
-   Internet            │                                                      │
-   ────────            │   caddy (TLS :80/:443)                               │
-   dashboard ─────────▶│     └─ signage.example.com → web:80 ─┬─ SPA          │
-   devices   ──HTTPS──▶│                                      └─ /api/ → api  │
-             ──WSS────▶│                                          (REST + WS) │
-                       │   api ─ worker ─ postgres ─ redis   (internal only)  │
-                       └──────────────────────────────────────────────────────┘
-                                          ▲
-   media URLs ────────────────────────────┘  browsers fetch presigned objects
-   (browser) ──────────────────────────▶  Cloudflare R2  (external)
+```mermaid
+flowchart TB
+  internet[Internet]
+  browser[Browsers]
+  r2["Cloudflare R2<br/>external object storage"]
+
+  subgraph server_box["your server — one host, private Docker network"]
+    caddy["Caddy<br/>TLS :80/:443"]
+    web["web<br/>nginx SPA + /api proxy"]
+    api["api<br/>REST + WS"]
+    worker["worker<br/>FFmpeg jobs"]
+    postgres[(postgres)]
+    redis[(redis)]
+  end
+
+  internet -->|dashboard| caddy
+  internet -->|devices over HTTPS/WSS| caddy
+  caddy --> web
+  web -->|/api/| api
+  api -->|enqueue jobs via| redis
+  redis --> worker
+  api --> postgres
+  worker --> postgres
+  browser -->|presigned media URLs| r2
 ```
 
 Key points:
@@ -68,15 +80,15 @@ Key points:
 
 Containers:
 
-| Service    | Role                                          | Public? |
-| ---------- | --------------------------------------------- | ------- |
-| `caddy`    | TLS reverse proxy (from the prod override)    | **yes** |
-| `web`      | nginx serving the SPA + proxying `/api/`      | no      |
-| `api`      | Fastify REST API + device WebSocket           | no      |
-| `worker`   | BullMQ media processing (FFmpeg)              | no      |
-| `postgres` | PostgreSQL 16 database                        | no      |
-| `redis`    | Redis (job queue)                             | no      |
-| `migrate`  | one-shot `prisma migrate deploy` on startup   | no      |
+| Service    | Role                                        | Public? |
+| ---------- | ------------------------------------------- | ------- |
+| `caddy`    | TLS reverse proxy (from the prod override)  | **yes** |
+| `web`      | nginx serving the SPA + proxying `/api/`    | no      |
+| `api`      | Fastify REST API + device WebSocket         | no      |
+| `worker`   | BullMQ media processing (FFmpeg)            | no      |
+| `postgres` | PostgreSQL 16 database                      | no      |
+| `redis`    | Redis (job queue)                           | no      |
+| `migrate`  | one-shot `prisma migrate deploy` on startup | no      |
 
 > Using self-hosted MinIO instead of R2? See [§6](#6-object-storage-alternatives).
 
@@ -132,7 +144,7 @@ record resolves to the server and ports 80/443 are reachable.
 ## 4. Get the code
 
 ```bash
-git clone https://github.com/Bananenprofeet/hamfield-signage.git
+git clone https://github.com/hamfield-eu/hamfield-signage.git
 cd hamfield-signage
 ```
 
@@ -178,7 +190,7 @@ x-r2-credentials: &r2-credentials
   S3_BUCKET: signage-media
   S3_ACCESS_KEY: <R2_ACCESS_KEY_ID>
   S3_SECRET_KEY: <R2_SECRET_ACCESS_KEY>
-  S3_FORCE_PATH_STYLE: "true"
+  S3_FORCE_PATH_STYLE: 'true'
 ```
 
 And in the `api` / `postgres` services:
@@ -374,13 +386,13 @@ gunzip -c backup-YYYY-MM-DD.sql.gz | dc exec -T postgres psql -U signage signage
 
 ## 13. Troubleshooting
 
-| Symptom                                   | Likely cause / fix                                                                                                                                                                          |
-| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Symptom                                         | Likely cause / fix                                                                                                                                                                                                                                                                                                   |
+| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `migrate` exits 1, `P1000` in `dc logs migrate` | **Password mismatch.** `POSTGRES_PASSWORD` ≠ the password inside `DATABASE_URL`. Note the DB password is baked into the `postgres-data` volume on first creation — if you changed it later, either set the URL to the original password or recreate the volume (`dc down -v`, **destroys data**) on a fresh install. |
-| api/web/caddy stuck in `Created`          | They `depends_on` `migrate` completing — fix the migrate failure above, then `dc up -d`.                                                                                                   |
-| Caddy cannot get a certificate            | DNS not pointing at the server yet, or 80/443 blocked by the cloud firewall, or Cloudflare orange-cloud proxy on. Check `dig` and `dc logs caddy`.                                          |
-| `curl` returns 521 / "web server is down" | Cloudflare can't reach the origin — Caddy/api not up yet (see above), or orange-cloud proxy before TLS works. Set the record to DNS-only until certs issue.                                |
-| Dashboard loads but thumbnails are broken | `S3_PUBLIC_ENDPOINT` wrong, or R2 bucket CORS doesn't allow `GET` from the dashboard origin, or `S3_FORCE_PATH_STYLE` wrong for your provider.                                             |
-| Devices connect over HTTP but not WSS     | Reverse proxy not forwarding the WebSocket upgrade. The bundled nginx + Caddyfile do this; a Cloudflare orange-cloud proxy may not — enable WebSockets or use DNS-only.                     |
-| API exits immediately on first start      | `JWT_SECRET` left at the placeholder while `NODE_ENV=production` — set a real one.                                                                                                         |
-| Login fails right after deploy            | No superadmin was bootstrapped — run the `create-superadmin` CLI in [§8](#8-verify).                                                                                                       |
+| api/web/caddy stuck in `Created`                | They `depends_on` `migrate` completing — fix the migrate failure above, then `dc up -d`.                                                                                                                                                                                                                             |
+| Caddy cannot get a certificate                  | DNS not pointing at the server yet, or 80/443 blocked by the cloud firewall, or Cloudflare orange-cloud proxy on. Check `dig` and `dc logs caddy`.                                                                                                                                                                   |
+| `curl` returns 521 / "web server is down"       | Cloudflare can't reach the origin — Caddy/api not up yet (see above), or orange-cloud proxy before TLS works. Set the record to DNS-only until certs issue.                                                                                                                                                          |
+| Dashboard loads but thumbnails are broken       | `S3_PUBLIC_ENDPOINT` wrong, or R2 bucket CORS doesn't allow `GET` from the dashboard origin, or `S3_FORCE_PATH_STYLE` wrong for your provider.                                                                                                                                                                       |
+| Devices connect over HTTP but not WSS           | Reverse proxy not forwarding the WebSocket upgrade. The bundled nginx + Caddyfile do this; a Cloudflare orange-cloud proxy may not — enable WebSockets or use DNS-only.                                                                                                                                              |
+| API exits immediately on first start            | `JWT_SECRET` left at the placeholder while `NODE_ENV=production` — set a real one.                                                                                                                                                                                                                                   |
+| Login fails right after deploy                  | No superadmin was bootstrapped — run the `create-superadmin` CLI in [§8](#8-verify).                                                                                                                                                                                                                                 |
