@@ -89,16 +89,25 @@ Useful commands: `systemctl status signage-agent`, `journalctl -u signage-agent 
 
 ## Updates
 
-Two paths:
+Two paths (the remote path is documented in full in
+[device-updates.md](device-updates.md)):
 
 1. **From a checkout** (hands-on): `git pull` and re-run `install.sh` — the env
    file and pairing are preserved.
 2. **Remote** (fleet): build a release tarball on any machine with
-   `./infra/device/install.sh --bundle signage-device.tar.gz`, host it, set
-   `SIGNAGE_UPDATE_URL` on the devices, and send the `software_update` command
-   from the dashboard. The device downloads the tarball, keeps the previous
-   version as `*.previous` for rollback, swaps `agent`/`player-ui`/`bin`, and
-   restarts itself.
+   `./infra/device/install.sh --bundle signage-device.tar.gz`, host it at a
+   stable URL (e.g. `https://hamfield.eu/signage-device.tar.gz`), set
+   `SIGNAGE_UPDATE_URL` to that URL once on the devices, and send the
+   `software_update` command from the dashboard. The device downloads the
+   tarball, keeps the previous version as `*.previous` for rollback, swaps
+   `agent`/`player-ui`/`bin`, and restarts itself.
+
+   The update is **idempotent**: the device compares the tarball's `sha256`
+   against the version it is already running and only swaps + restarts when the
+   hosted file has actually changed, so you can safely send `software_update` to
+   the whole fleet on a schedule — unchanged devices are a cheap no-op. To cut a
+   new release, just overwrite the hosted tarball and re-send the command.
+   `update.sh --force` re-applies even when the hash matches (for recovery).
 
 ## Re-pairing / moving a device
 
