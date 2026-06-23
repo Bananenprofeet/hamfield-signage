@@ -15,6 +15,9 @@ const envSchema = z.object({
     .transform((v) => v === 'true'),
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
   MAX_VIDEO_HEIGHT: z.coerce.number().int().min(240).default(1080),
+  // Cap output fps so the H.264 level matches the stream; 30 is safe for every
+  // current player (ARM SBC hardware decoders choke on 1080p50/60).
+  MAX_VIDEO_FPS: z.coerce.number().int().min(1).max(120).default(30),
   VIDEO_BITRATE_KBPS: z.coerce.number().int().min(250).default(6000),
   FALLBACK_VIDEO_BITRATE_KBPS: z.coerce.number().int().min(250).default(2000),
   CREATE_FALLBACK_VARIANT: z

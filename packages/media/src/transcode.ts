@@ -1,35 +1,57 @@
 import { spawn } from 'node:child_process';
 import { ffmpegPath } from './probe';
 
+export type H264Profile = 'baseline' | 'main' | 'high';
+
 export interface TranscodeOptions {
   inputPath: string;
   outputPath: string;
   maxHeight: number;
   videoBitrateKbps: number;
+  /**
+   * Cap the output frame rate. Sources above this are decimated; sources at or
+   * below it are left untouched (pass the source fps as `sourceFrameRate`). A
+   * stream's H.264 level must match its actual fps — an uncapped 50/60fps clip
+   * encoded at a 30fps level is exactly what makes hardware decoders (e.g. the
+   * Raspberry Pi) reject the stream and show a white frame.
+   */
+  maxFrameRate?: number;
+  /** Source fps from the probe; used to decide whether the fps cap applies. */
+  sourceFrameRate?: number | null;
+  /** H.264 profile. Lower = more broadly decodable (default 'high'). */
+  profile?: H264Profile;
   /** Mute output entirely (signage default keeps the AAC track but players mute). */
   stripAudio?: boolean;
 }
 
 /**
  * Builds the ffmpeg argument list that normalizes any input video into a
- * signage-safe MP4: H.264 high profile, yuv420p, AAC audio, +faststart so
- * playback can begin before the whole file is read, even dimensions
- * (required by H.264), capped height, capped bitrate.
+ * signage-safe MP4: H.264 (profile per tier), yuv420p, AAC audio, +faststart so
+ * playback can begin before the whole file is read, even dimensions (required by
+ * H.264), capped height, capped frame rate and capped bitrate. The H.264 level
+ * is left for x264 to compute from the (capped) resolution/fps/bitrate so the
+ * signalled level always matches the actual stream.
  */
 export function buildTranscodeArgs(opts: TranscodeOptions): string[] {
+  // Cap height while preserving aspect ratio; -2 keeps width even.
+  const filters = [`scale=-2:'min(${opts.maxHeight},ih)'`];
+  if (
+    opts.maxFrameRate &&
+    (opts.sourceFrameRate == null || opts.sourceFrameRate > opts.maxFrameRate)
+  ) {
+    filters.push(`fps=${opts.maxFrameRate}`);
+  }
+
   const args = [
     '-y',
     '-i',
     opts.inputPath,
-    // Cap height while preserving aspect ratio; -2 keeps width even.
     '-vf',
-    `scale=-2:'min(${opts.maxHeight},ih)'`,
+    filters.join(','),
     '-c:v',
     'libx264',
     '-profile:v',
-    'high',
-    '-level',
-    '4.1',
+    opts.profile ?? 'high',
     '-pix_fmt',
     'yuv420p',
     '-preset',

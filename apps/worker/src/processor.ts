@@ -36,6 +36,7 @@ async function processVideo(
   originalPath: string,
   tmpDir: string,
   baseKey: string,
+  sourceFrameRate: number | null,
   log: Logger,
 ): Promise<{ processedKey: string; processedMime: string; processedPath: string }> {
   const env = getEnv();
@@ -47,6 +48,8 @@ async function processVideo(
       outputPath: processedPath,
       maxHeight: env.MAX_VIDEO_HEIGHT,
       videoBitrateKbps: env.VIDEO_BITRATE_KBPS,
+      maxFrameRate: env.MAX_VIDEO_FPS,
+      sourceFrameRate,
     }),
   );
   const processedKey = `${baseKey}/processed/video.mp4`;
@@ -61,6 +64,10 @@ async function processVideo(
         outputPath: fallbackPath,
         maxHeight: Math.min(720, env.MAX_VIDEO_HEIGHT),
         videoBitrateKbps: env.FALLBACK_VIDEO_BITRATE_KBPS,
+        maxFrameRate: env.MAX_VIDEO_FPS,
+        sourceFrameRate,
+        // Lighter, most broadly-decodable profile for weak players (e.g. ODROID C4).
+        profile: 'main',
       }),
     );
     const fallbackKey = `${baseKey}/processed/video-fallback.mp4`;
@@ -135,7 +142,7 @@ export async function processMediaAsset(
     const isVideo = media.mediaType === 'video';
 
     const { processedKey, processedMime, processedPath } = isVideo
-      ? await processVideo(prisma, media, originalPath, tmpDir, baseKey, log)
+      ? await processVideo(prisma, media, originalPath, tmpDir, baseKey, probe.frameRate, log)
       : // Images are already playable; the original doubles as the processed file.
         {
           processedKey: media.originalStorageKey,

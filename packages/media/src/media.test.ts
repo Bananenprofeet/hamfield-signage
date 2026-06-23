@@ -1,7 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import { applyRotation, classifyOrientation } from './orientation';
 import { interpretProbeOutput } from './probe';
+import { buildTranscodeArgs } from './transcode';
 import { fileExtension, mediaTypeForMime, sanitizeFilename, sniffMimeType } from './validation';
+
+describe('buildTranscodeArgs frame-rate cap', () => {
+  const base = { inputPath: 'in', outputPath: 'out', maxHeight: 1080, videoBitrateKbps: 6000 };
+  const vf = (opts: Parameters<typeof buildTranscodeArgs>[0]) => {
+    const args = buildTranscodeArgs(opts);
+    return args[args.indexOf('-vf') + 1];
+  };
+
+  it('decimates sources above the cap', () => {
+    expect(vf({ ...base, maxFrameRate: 30, sourceFrameRate: 60 })).toContain('fps=30');
+  });
+  it('leaves sources at or below the cap untouched', () => {
+    expect(vf({ ...base, maxFrameRate: 30, sourceFrameRate: 25 })).not.toContain('fps=');
+  });
+  it('applies the cap when the source fps is unknown (safe default)', () => {
+    expect(vf({ ...base, maxFrameRate: 30, sourceFrameRate: null })).toContain('fps=30');
+  });
+  it('never pins an explicit H.264 level (x264 computes it from the stream)', () => {
+    expect(buildTranscodeArgs({ ...base, maxFrameRate: 30 })).not.toContain('-level');
+  });
+  it('honours the profile (lighter tier for weak players)', () => {
+    const args = buildTranscodeArgs({ ...base, profile: 'main' });
+    expect(args[args.indexOf('-profile:v') + 1]).toBe('main');
+  });
+});
 
 describe('classifyOrientation', () => {
   it('classifies landscape', () => {

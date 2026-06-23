@@ -10,6 +10,8 @@ export interface ProbeResult {
   height: number;
   orientation: MediaOrientation;
   durationSeconds: number | null;
+  /** Frames per second of the source video, or null if unknown. */
+  frameRate: number | null;
   videoCodec: string | null;
   audioCodec: string | null;
   container: string | null;
@@ -23,8 +25,21 @@ interface FfprobeStream {
   width?: number;
   height?: number;
   duration?: string;
+  /** e.g. "30000/1001" or "60/1". */
+  avg_frame_rate?: string;
+  r_frame_rate?: string;
   side_data_list?: Array<{ rotation?: number }>;
   tags?: Record<string, string>;
+}
+
+/** Parses an ffprobe rational frame-rate string ("60/1", "30000/1001") to fps. */
+function parseFrameRate(raw: string | undefined): number | null {
+  if (!raw) return null;
+  const [num, den] = raw.split('/');
+  const n = Number(num);
+  const d = den == null ? 1 : Number(den);
+  if (!Number.isFinite(n) || !Number.isFinite(d) || d === 0 || n <= 0) return null;
+  return n / d;
 }
 
 interface FfprobeOutput {
@@ -88,6 +103,7 @@ export function interpretProbeOutput(parsed: FfprobeOutput): ProbeResult {
     height,
     orientation: classifyOrientation(width, height),
     durationSeconds: duration,
+    frameRate: parseFrameRate(videoStream.avg_frame_rate) ?? parseFrameRate(videoStream.r_frame_rate),
     videoCodec: videoStream.codec_name ?? null,
     audioCodec: audioStream?.codec_name ?? null,
     container: parsed.format?.format_name ?? null,
