@@ -22,7 +22,33 @@ it. **Feature A (device tiers) should be built first**; Feature B layers on top.
 
 ---
 
-## Feature A — Per-device encoding tiers (build this first)
+## Feature A — Per-device encoding tiers ✅ SHIPPED 2026-06-24
+
+Implemented across shared/media/db/worker/api/agent/web. Key pieces as built:
+
+- **Shared:** `PLAYBACK_PROFILES`/`PlaybackProfile`, `video_high|standard|light`
+  added to `MEDIA_VARIANT_KINDS`, `videoVariantKindForProfile`,
+  `suggestPlaybackProfile`, `DEFAULT_PLAYBACK_PROFILE` (`packages/shared/src/`).
+- **Media:** `VIDEO_TIERS` + `tierTranscodeOptions` (`packages/media/src/transcode.ts`).
+- **DB:** migration `20260624000000_per_device_encoding_tiers` — `PlaybackProfile`
+  enum, `Device.playbackProfile` (default `standard`), `Device.deviceModel`,
+  enum ADD VALUE for the three video kinds.
+- **Worker:** `processVideo` generates only the org's in-use tiers (distinct
+  `Device.playbackProfile`, always incl. `standard`); standard → processed
+  columns, others → `MediaVariant`; prunes unused/legacy variants. Old
+  `CREATE_FALLBACK_VARIANT` path removed.
+- **API:** `selectVideoVariant` (`apps/api/src/lib/media-variant.ts`, unit-tested)
+  used by both `manifest.ts` (per-device tier checksum/size) and the device file
+  endpoint (serves the device-profile tier).
+- **Device CRUD/DTO:** `playbackProfile` + `deviceModel` through schemas,
+  `DeviceDto`, `serializeDevice`, device create/update handlers.
+- **Agent:** `readDeviceModel()` (`/proc/device-tree/model`) reported via
+  heartbeat + pairing; stored on `Device.deviceModel`.
+- **Dashboard:** video-quality-tier dropdown in `DeviceDetail` with the
+  hardware-derived "(suggested)" hint.
+- **Backfill:** `reprocess-media` CLI regenerates the now-in-use tiers; re-run it
+  after adding a screen of a new hardware class. No automatic reconcile job yet —
+  adding a new-profile device leaves it on the `standard` fallback until reprocess.
 
 ### Goal
 

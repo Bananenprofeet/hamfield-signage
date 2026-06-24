@@ -23,6 +23,7 @@ export async function applyHeartbeat(
         appVersion: body.appVersion,
         osInfo: body.osInfo,
         archInfo: body.archInfo,
+        deviceModel: body.deviceModel ?? undefined,
         uptimeSeconds: body.uptimeSeconds,
         cpuPercent: body.cpuPercent,
         memUsedBytes: big(body.memUsedBytes),

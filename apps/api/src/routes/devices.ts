@@ -81,6 +81,7 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
         orientation: body.orientation,
         rotation: body.rotation,
         timezone: body.timezone,
+        playbackProfile: body.playbackProfile,
         pairingCode: generatePairingCode(),
         pairingCodeExpiresAt: new Date(Date.now() + env.PAIRING_CODE_TTL_MINUTES * 60_000),
         groupMemberships: body.groupIds?.length
@@ -148,12 +149,21 @@ export async function deviceRoutes(app: FastifyInstance): Promise<void> {
           orientation: body.orientation,
           rotation: body.rotation,
           timezone: body.timezone,
+          playbackProfile: body.playbackProfile,
           defaultPlaylistId: body.defaultPlaylistId,
         },
         include: { groupMemberships: true },
       });
     });
 
+    // A new playback tier may not be encoded yet — the device falls back to the
+    // standard tier until the media is reprocessed (reprocess-media CLI).
+    if (body.playbackProfile && body.playbackProfile !== device.playbackProfile) {
+      req.log.info(
+        { deviceId: device.id, playbackProfile: body.playbackProfile },
+        'device playback tier changed — reprocess media to backfill the tier',
+      );
+    }
     await wsHub.notifySyncRequired([device.id], 'device settings updated');
     return serializeDevice(updated);
   });

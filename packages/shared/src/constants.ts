@@ -1,6 +1,8 @@
 export const DEFAULT_IMAGE_DURATION_SECONDS = 10;
 export const DEFAULT_FIT_MODE = 'contain' as const;
 export const DEFAULT_DEVICE_ORIENTATION = 'landscape' as const;
+/** Safe default video tier: 1080p30 plays on every current player. */
+export const DEFAULT_PLAYBACK_PROFILE = 'standard' as const;
 export const DEFAULT_TIMEZONE = 'UTC';
 export const DEFAULT_MAX_CACHE_SIZE_GB = 8;
 

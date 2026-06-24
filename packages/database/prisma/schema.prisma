@@ -73,6 +73,15 @@ enum MediaVariantKind {
   processed
   fallback
   thumbnail
+  video_high
+  video_standard
+  video_light
+}
+
+enum PlaybackProfile {
+  high
+  standard
+  light
 }
 
 enum FitMode {
@@ -212,6 +221,9 @@ model Device {
   // the panel is physically mounted; orthogonal to orientation.
   rotation       Int               @default(0)
   timezone       String            @default("UTC")
+  // Video quality tier served to this device. Defaults to the safe `standard`
+  // (1080p30) tier; auto-suggested in the dashboard from `deviceModel`.
+  playbackProfile PlaybackProfile  @default(standard)
 
   // Pairing. The code is short-lived, single-use and shown in the dashboard
   // until used, so it is stored in plaintext by design (unlike device tokens,
@@ -226,6 +238,9 @@ model Device {
   appVersion     String?
   osInfo         String?
   archInfo       String?
+  // Board model reported by the device (e.g. "Raspberry Pi 4 Model B",
+  // "Hardkernel ODROID-C4"); used to auto-suggest a playback tier.
+  deviceModel    String?
   uptimeSeconds  Float?
   cpuPercent     Float?
   memUsedBytes   BigInt?

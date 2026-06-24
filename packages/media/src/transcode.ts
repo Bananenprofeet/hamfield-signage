@@ -1,7 +1,51 @@
 import { spawn } from 'node:child_process';
+import type { PlaybackProfile } from '@signage/shared';
 import { ffmpegPath } from './probe';
 
 export type H264Profile = 'baseline' | 'main' | 'high';
+
+/** A fixed video-quality preset. One per {@link PlaybackProfile}. */
+export interface VideoTier {
+  /** Cap the output height (preserving aspect ratio). */
+  maxHeight: number;
+  /** Cap the output frame rate; higher sources are decimated. */
+  maxFrameRate: number;
+  /** Target average bitrate in kbps. */
+  videoBitrateKbps: number;
+  /** H.264 profile; lower = more broadly decodable. */
+  profile: H264Profile;
+}
+
+/**
+ * The per-device encoding tiers. Each video is transcoded into the tiers in use
+ * by the fleet and a device is served the one its hardware can decode smoothly.
+ * Keep this the single source of truth for the tier parameters.
+ */
+export const VIDEO_TIERS: Record<PlaybackProfile, VideoTier> = {
+  high: { maxHeight: 1080, maxFrameRate: 60, videoBitrateKbps: 9000, profile: 'high' },
+  standard: { maxHeight: 1080, maxFrameRate: 30, videoBitrateKbps: 6000, profile: 'high' },
+  light: { maxHeight: 720, maxFrameRate: 30, videoBitrateKbps: 2500, profile: 'main' },
+};
+
+/**
+ * Turns a tier into {@link buildTranscodeArgs} options for a given input/output.
+ * `sourceFrameRate` comes from the probe so the fps cap only decimates sources
+ * above the cap.
+ */
+export function tierTranscodeOptions(
+  tier: VideoTier,
+  io: { inputPath: string; outputPath: string; sourceFrameRate?: number | null },
+): TranscodeOptions {
+  return {
+    inputPath: io.inputPath,
+    outputPath: io.outputPath,
+    maxHeight: tier.maxHeight,
+    videoBitrateKbps: tier.videoBitrateKbps,
+    maxFrameRate: tier.maxFrameRate,
+    sourceFrameRate: io.sourceFrameRate,
+    profile: tier.profile,
+  };
+}
 
 export interface TranscodeOptions {
   inputPath: string;

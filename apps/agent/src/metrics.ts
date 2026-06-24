@@ -1,5 +1,5 @@
 import os from 'node:os';
-import { statfs } from 'node:fs/promises';
+import { readFile, statfs } from 'node:fs/promises';
 import type { HeartbeatInput } from '@signage/shared';
 import type { AgentConfig } from './config';
 import type { AgentDb } from './db';
@@ -7,6 +7,24 @@ import type { AgentDb } from './db';
 export interface PlaybackPosition {
   currentPlaylistId: string | null;
   currentMediaId: string | null;
+}
+
+/**
+ * Reads the board model on Linux SBCs (e.g. "Raspberry Pi 4 Model B Rev 1.4",
+ * "Hardkernel ODROID-C4"). The device-tree exposes it NUL-terminated; we trim
+ * that. Returns null on non-Linux hosts or when the node is absent.
+ */
+export async function readDeviceModel(): Promise<string | null> {
+  for (const path of ['/proc/device-tree/model', '/sys/firmware/devicetree/base/model']) {
+    try {
+      const raw = await readFile(path, 'utf8');
+      const model = raw.replace(/\0/g, '').trim();
+      if (model) return model;
+    } catch {
+      // Not present on this host; try the next path.
+    }
+  }
+  return null;
 }
 
 export async function collectMetrics(
@@ -32,6 +50,7 @@ export async function collectMetrics(
     appVersion: config.appVersion,
     osInfo: `${os.type()} ${os.release()}`,
     archInfo: os.arch(),
+    deviceModel: await readDeviceModel(),
     uptimeSeconds: Math.round(os.uptime()),
     cpuPercent,
     memUsedBytes: os.totalmem() - os.freemem(),

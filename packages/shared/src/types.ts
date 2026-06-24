@@ -11,6 +11,7 @@ import type {
   OrgStatus,
   PlaybackEventType,
   PlaybackOrderMode,
+  PlaybackProfile,
   PlayedAs,
   PlaylistItemType,
   PositionMode,
@@ -76,6 +77,8 @@ export interface DeviceDto {
   /** Software rotation (clockwise degrees) to compensate for physical mounting. */
   rotation: DeviceRotation;
   timezone: string;
+  /** Video quality tier served to this device. */
+  playbackProfile: PlaybackProfile;
   online: boolean;
   paired: boolean;
   pairingCode: string | null;
@@ -85,6 +88,8 @@ export interface DeviceDto {
   appVersion: string | null;
   osInfo: string | null;
   archInfo: string | null;
+  /** Reported board model, used to auto-suggest a playback tier. */
+  deviceModel: string | null;
   syncStatus: SyncStatus;
   lastSyncAt: string | null;
   manifestVersion: string | null;

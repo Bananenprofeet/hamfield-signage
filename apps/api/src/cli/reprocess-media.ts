@@ -6,6 +6,11 @@
  * Safe and idempotent: originals are untouched and devices re-download a changed
  * file automatically on their next sync.
  *
+ * Also backfills the per-device encoding tiers: the worker regenerates exactly
+ * the tiers in use by the org's fleet (distinct Device.playbackProfile). Run
+ * this after adding a screen of a new hardware class (e.g. the first ODROID C4,
+ * which needs the `light` tier) so its tier is encoded for existing media.
+ *
  * Usage (inside the api container):
  *   node apps/api/dist/cli/reprocess-media.js                # every video, all orgs
  *   node apps/api/dist/cli/reprocess-media.js <orgId>        # one org's videos

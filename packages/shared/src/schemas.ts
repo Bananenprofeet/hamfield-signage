@@ -9,6 +9,7 @@ import {
   ORG_STATUSES,
   PLAYBACK_EVENT_TYPES,
   PLAYBACK_ORDER_MODES,
+  PLAYBACK_PROFILES,
   PLAYED_AS_VALUES,
   POSITION_MODES,
   PRIORITY_SELECTION_MODES,
@@ -94,6 +95,7 @@ export const createDeviceSchema = z.object({
   orientation: z.enum(DEVICE_ORIENTATIONS).default('landscape'),
   rotation: rotationSchema.default(0),
   timezone: timezoneSchema.default('UTC'),
+  playbackProfile: z.enum(PLAYBACK_PROFILES).default('standard'),
   groupIds: z.array(z.string()).optional(),
 });
 
@@ -103,6 +105,7 @@ export const updateDeviceSchema = z.object({
   orientation: z.enum(DEVICE_ORIENTATIONS).optional(),
   rotation: rotationSchema.optional(),
   timezone: timezoneSchema.optional(),
+  playbackProfile: z.enum(PLAYBACK_PROFILES).optional(),
   defaultPlaylistId: z.string().nullable().optional(),
   groupIds: z.array(z.string()).optional(),
 });
@@ -388,6 +391,8 @@ export const heartbeatSchema = z.object({
   appVersion: z.string().max(50).optional(),
   osInfo: z.string().max(200).optional(),
   archInfo: z.string().max(50).optional(),
+  /** Board model (e.g. from /proc/device-tree/model) for tier auto-suggestion. */
+  deviceModel: z.string().max(200).nullable().optional(),
   uptimeSeconds: z.number().optional(),
   cpuPercent: z.number().optional(),
   memUsedBytes: z.number().optional(),

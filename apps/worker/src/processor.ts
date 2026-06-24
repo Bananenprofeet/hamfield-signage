@@ -9,10 +9,37 @@ import {
   probeMediaFile,
   runFfmpeg,
   sha256File,
+  tierTranscodeOptions,
+  VIDEO_TIERS,
   type ProbeResult,
 } from '@signage/media';
+import {
+  DEFAULT_PLAYBACK_PROFILE,
+  videoVariantKindForProfile,
+  type PlaybackProfile,
+} from '@signage/shared';
 import { getEnv } from './env';
 import { downloadFromS3, uploadFileToS3 } from './s3';
+
+/**
+ * The set of tiers to generate for one org's media: every distinct
+ * `Device.playbackProfile` in use, plus the `standard` tier always (it is the
+ * processed file every device falls back to). Generating only in-use tiers
+ * keeps R2 storage minimal.
+ */
+async function tiersInUse(
+  prisma: PrismaClient,
+  organizationId: string,
+): Promise<PlaybackProfile[]> {
+  const rows = await prisma.device.findMany({
+    where: { organizationId, deletedAt: null },
+    distinct: ['playbackProfile'],
+    select: { playbackProfile: true },
+  });
+  const set = new Set<PlaybackProfile>([DEFAULT_PLAYBACK_PROFILE]);
+  for (const r of rows) set.add(r.playbackProfile as PlaybackProfile);
+  return [...set];
+}
 
 export interface MediaJobData {
   mediaAssetId: string;
@@ -39,65 +66,77 @@ async function processVideo(
   sourceFrameRate: number | null,
   log: Logger,
 ): Promise<{ processedKey: string; processedMime: string; processedPath: string }> {
-  const env = getEnv();
-  const processedPath = join(tmpDir, 'processed.mp4');
+  const tiers = await tiersInUse(prisma, media.organizationId);
 
-  await runFfmpeg(
-    buildTranscodeArgs({
-      inputPath: originalPath,
-      outputPath: processedPath,
-      maxHeight: env.MAX_VIDEO_HEIGHT,
-      videoBitrateKbps: env.VIDEO_BITRATE_KBPS,
-      maxFrameRate: env.MAX_VIDEO_FPS,
-      sourceFrameRate,
-    }),
-  );
-  const processedKey = `${baseKey}/processed/video.mp4`;
-  await uploadFileToS3(processedKey, processedPath, 'video/mp4');
-  log.info({ mediaId: media.id }, 'worker: main transcode uploaded');
+  // The `standard` tier is the processed file every device falls back to; the
+  // caller persists it onto the MediaAsset. Other tiers become MediaVariant rows.
+  const standardKey = `${baseKey}/processed/video.mp4`;
+  const standardPath = join(tmpDir, 'processed.mp4');
 
-  if (env.CREATE_FALLBACK_VARIANT) {
-    const fallbackPath = join(tmpDir, 'fallback.mp4');
+  for (const profile of tiers) {
+    const isStandard = profile === DEFAULT_PLAYBACK_PROFILE;
+    const outputPath = isStandard ? standardPath : join(tmpDir, `video-${profile}.mp4`);
+    const storageKey = isStandard ? standardKey : `${baseKey}/processed/video-${profile}.mp4`;
+
     await runFfmpeg(
-      buildTranscodeArgs({
-        inputPath: originalPath,
-        outputPath: fallbackPath,
-        maxHeight: Math.min(720, env.MAX_VIDEO_HEIGHT),
-        videoBitrateKbps: env.FALLBACK_VIDEO_BITRATE_KBPS,
-        maxFrameRate: env.MAX_VIDEO_FPS,
-        sourceFrameRate,
-        // Lighter, most broadly-decodable profile for weak players (e.g. ODROID C4).
-        profile: 'main',
-      }),
+      buildArgsForTier(profile, { inputPath: originalPath, outputPath, sourceFrameRate }),
     );
-    const fallbackKey = `${baseKey}/processed/video-fallback.mp4`;
-    await uploadFileToS3(fallbackKey, fallbackPath, 'video/mp4');
+    await uploadFileToS3(storageKey, outputPath, 'video/mp4');
 
-    const fallbackProbe = await probeMediaFile(fallbackPath);
-    const fallbackStat = await stat(fallbackPath);
-    const fallbackChecksum = await sha256File(fallbackPath);
-    const fallbackFields = {
-      storageKey: fallbackKey,
-      width: fallbackProbe.width,
-      height: fallbackProbe.height,
-      bitrateKbps: env.FALLBACK_VIDEO_BITRATE_KBPS,
-      sizeBytes: BigInt(fallbackStat.size),
-      checksumSha256: fallbackChecksum,
+    if (isStandard) {
+      log.info({ mediaId: media.id }, 'worker: standard tier transcoded');
+      continue;
+    }
+
+    const tierProbe = await probeMediaFile(outputPath);
+    const tierStat = await stat(outputPath);
+    const tierFields = {
+      storageKey,
+      width: tierProbe.width,
+      height: tierProbe.height,
+      bitrateKbps: VIDEO_TIERS[profile].videoBitrateKbps,
+      sizeBytes: BigInt(tierStat.size),
+      checksumSha256: await sha256File(outputPath),
     };
+    const kind = videoVariantKindForProfile(profile);
     await prisma.mediaVariant.upsert({
-      where: { mediaAssetId_kind: { mediaAssetId: media.id, kind: 'fallback' } },
-      create: {
-        mediaAssetId: media.id,
-        kind: 'fallback',
-        mimeType: 'video/mp4',
-        ...fallbackFields,
-      },
-      update: fallbackFields,
+      where: { mediaAssetId_kind: { mediaAssetId: media.id, kind } },
+      create: { mediaAssetId: media.id, kind, mimeType: 'video/mp4', ...tierFields },
+      update: tierFields,
     });
-    log.info({ mediaId: media.id }, 'worker: fallback variant uploaded');
+    log.info({ mediaId: media.id, tier: profile }, 'worker: tier variant uploaded');
   }
 
-  return { processedKey, processedMime: 'video/mp4', processedPath };
+  // Drop variant rows for tiers no longer in use (and the legacy `fallback`
+  // variant) so manifests and serving never reference stale tiers. The R2
+  // objects are reclaimed by the retention job.
+  const keptKinds = tiers
+    .filter((p) => p !== DEFAULT_PLAYBACK_PROFILE)
+    .map((p) => videoVariantKindForProfile(p));
+  await prisma.mediaVariant.deleteMany({
+    where: {
+      mediaAssetId: media.id,
+      kind: { in: ['fallback', 'video_high', 'video_standard', 'video_light'], notIn: keptKinds },
+    },
+  });
+
+  return { processedKey: standardKey, processedMime: 'video/mp4', processedPath: standardPath };
+}
+
+function buildArgsForTier(
+  profile: PlaybackProfile,
+  io: { inputPath: string; outputPath: string; sourceFrameRate: number | null },
+): string[] {
+  const env = getEnv();
+  const tier = VIDEO_TIERS[profile];
+  // Env caps remain a global ceiling on top of the tier presets (e.g. a site
+  // that wants to cap everything at 30fps can still do so via MAX_VIDEO_FPS).
+  const capped = {
+    ...tier,
+    maxHeight: Math.min(tier.maxHeight, env.MAX_VIDEO_HEIGHT),
+    maxFrameRate: Math.min(tier.maxFrameRate, env.MAX_VIDEO_FPS),
+  };
+  return buildTranscodeArgs(tierTranscodeOptions(capped, io));
 }
 
 /**

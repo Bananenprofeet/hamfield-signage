@@ -8,12 +8,14 @@ import {
   playbackEventsSchema,
   syncStatusSchema,
   type PairResponse,
+  type PlaybackProfile,
 } from '@signage/shared';
 import type { Prisma } from '@signage/database';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { generateDeviceToken, normalizePairingCode } from '../lib/tokens';
 import { applyHeartbeat } from '../lib/heartbeat';
 import { allowedMediaIdsForDevice, buildSyncManifest } from '../lib/manifest';
+import { selectVideoVariant } from '../lib/media-variant';
 import { presignDownload, uploadBufferToS3 } from '../lib/s3';
 import { serializeCommand } from '../lib/serializers';
 
@@ -102,6 +104,7 @@ export async function deviceApiRoutes(app: FastifyInstance): Promise<void> {
           appVersion: body.hardware?.appVersion,
           osInfo: body.hardware?.os ?? body.hardware?.model,
           archInfo: body.hardware?.arch,
+          deviceModel: body.hardware?.model,
         },
       });
       if (claimed.count === 0) throw conflict('Pairing code was already used');
@@ -324,15 +327,19 @@ export async function deviceApiRoutes(app: FastifyInstance): Promise<void> {
 
     const media = await prisma.mediaAsset.findFirst({
       where: { id: req.params.mediaId, organizationId: dev.organizationId, deletedAt: null },
+      include: { variants: true },
     });
     if (!media) throw notFound('Media not found');
 
+    // The default `processed` variant resolves to the device's playback tier so
+    // the served file matches the checksum advertised in the manifest.
     const storageKey =
       query.variant === 'thumbnail'
         ? media.thumbnailStorageKey
         : query.variant === 'original'
           ? media.originalStorageKey
-          : (media.processedStorageKey ?? media.originalStorageKey);
+          : selectVideoVariant(media, media.variants, dev.playbackProfile as PlaybackProfile)
+              .storageKey;
     if (!storageKey) throw notFound(`No ${query.variant} variant available`);
 
     const url = await presignDownload(storageKey, 900);

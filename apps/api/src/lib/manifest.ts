@@ -1,5 +1,11 @@
 import type { PrismaClient } from '@signage/database';
-import { API_PREFIX, SYNC_PROTOCOL_VERSION, resolveDisplaySettings } from '@signage/shared';
+import {
+  API_PREFIX,
+  SYNC_PROTOCOL_VERSION,
+  resolveDisplaySettings,
+  videoVariantKindForProfile,
+  type PlaybackProfile,
+} from '@signage/shared';
 import {
   computeManifestVersion,
   type ManifestEmergency,
@@ -224,6 +230,11 @@ export async function buildSyncManifest(
     if (media) addMedia(mediaMap, media);
   }
 
+  // Advertise the device-profile tier's checksum/size for each video so the
+  // agent downloads (and sha256-verifies) the exact file the file endpoint
+  // serves. `standard` devices already match the processed columns addMedia set.
+  await applyProfileVariants(prisma, mediaMap, device.playbackProfile as PlaybackProfile);
+
   const manifestSchedules: ManifestSchedule[] = schedules
     .filter((s) => existingPlaylistIds.has(s.playlistId))
     .map((s) => ({
@@ -322,6 +333,36 @@ function addMedia(map: Map<string, ManifestMedia>, media: MediaRow): void {
     durationSeconds: media.durationSeconds,
     downloadPath: `${API_PREFIX}/device/media/${media.id}/file`,
   });
+}
+
+/**
+ * Overrides the checksum/size/mime/dimensions of each video entry with the
+ * device-profile tier's MediaVariant, when one exists. `standard` needs no
+ * override (it is the processed file addMedia already advertised); a missing
+ * variant for `high`/`light` falls back to standard (already in the map).
+ */
+async function applyProfileVariants(
+  prisma: PrismaClient,
+  map: Map<string, ManifestMedia>,
+  profile: PlaybackProfile,
+): Promise<void> {
+  if (profile === 'standard') return;
+  const videoIds = [...map.values()].filter((m) => m.type === 'video').map((m) => m.id);
+  if (videoIds.length === 0) return;
+
+  const kind = videoVariantKindForProfile(profile);
+  const variants = await prisma.mediaVariant.findMany({
+    where: { mediaAssetId: { in: videoIds }, kind },
+  });
+  for (const v of variants) {
+    const entry = map.get(v.mediaAssetId);
+    if (!entry) continue;
+    entry.checksum = v.checksumSha256;
+    entry.sizeBytes = Number(v.sizeBytes);
+    entry.mimeType = v.mimeType;
+    entry.width = v.width;
+    entry.height = v.height;
+  }
 }
 
 /** Returns the set of media ids a device is currently allowed to download. */

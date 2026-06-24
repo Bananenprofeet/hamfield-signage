@@ -7,7 +7,7 @@ import type {
   DeviceLogDto,
   PlaylistDto,
 } from '@signage/shared';
-import { rotationSwapsAxes } from '@signage/shared';
+import { rotationSwapsAxes, suggestPlaybackProfile } from '@signage/shared';
 import {
   Badge,
   Button,
@@ -51,6 +51,12 @@ const COMMAND_BUTTONS: Array<{ type: string; label: string; danger?: boolean; co
     },
     { type: 'reboot_device', label: 'Reboot device', danger: true, confirm: 'Reboot this device?' },
   ];
+
+const PROFILE_LABELS: Record<DeviceDto['playbackProfile'], string> = {
+  high: 'High — 1080p60 (strong players)',
+  standard: 'Standard — 1080p30 (Raspberry Pi 4)',
+  light: 'Light — 720p30 (ODROID C4 / weak)',
+};
 
 const STATUS_TONE: Record<string, 'green' | 'yellow' | 'red' | 'blue' | 'gray'> = {
   pending: 'gray',
@@ -359,6 +365,7 @@ function SettingsTab({
   const [orientation, setOrientation] = useState(device.orientation);
   const [rotation, setRotation] = useState<DeviceDto['rotation']>(device.rotation);
   const [timezone, setTimezone] = useState(device.timezone);
+  const [playbackProfile, setPlaybackProfile] = useState(device.playbackProfile);
   const [defaultPlaylistId, setDefaultPlaylistId] = useState(device.defaultPlaylistId ?? '');
   const [groupIds, setGroupIds] = useState<string[]>(device.groupIds);
 
@@ -368,9 +375,15 @@ function SettingsTab({
     setOrientation(device.orientation);
     setRotation(device.rotation);
     setTimezone(device.timezone);
+    setPlaybackProfile(device.playbackProfile);
     setDefaultPlaylistId(device.defaultPlaylistId ?? '');
     setGroupIds(device.groupIds);
   }, [device]);
+
+  // UI hint derived from reported hardware; the dropdown value still wins.
+  const suggestedProfile = suggestPlaybackProfile(
+    device.deviceModel ?? device.archInfo ?? device.osInfo,
+  );
 
   const save = useAction(async () => {
     await api.patch(`/orgs/${orgId}/devices/${device.id}`, {
@@ -379,6 +392,7 @@ function SettingsTab({
       orientation,
       rotation,
       timezone,
+      playbackProfile,
       defaultPlaylistId: defaultPlaylistId || null,
       groupIds,
     });
@@ -439,6 +453,28 @@ function SettingsTab({
               The player rotates its output by {rotation}° in software — use this when the panel is
               physically mounted turned (e.g. a 16:9 screen rotated to portrait). Native 9:16 panels
               need 0°.
+            </p>
+          ) : null}
+          <Field
+            label="Video quality tier"
+            hint={`Matches the file served to this screen to its hardware. Suggested: ${PROFILE_LABELS[suggestedProfile]}`}
+          >
+            <Select
+              value={playbackProfile}
+              onChange={(e) => setPlaybackProfile(e.target.value as DeviceDto['playbackProfile'])}
+            >
+              {(Object.keys(PROFILE_LABELS) as DeviceDto['playbackProfile'][]).map((p) => (
+                <option key={p} value={p}>
+                  {PROFILE_LABELS[p]}
+                  {p === suggestedProfile ? ' (suggested)' : ''}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          {playbackProfile !== device.playbackProfile ? (
+            <p className="text-xs text-slate-500">
+              The new tier is encoded on the next upload. To apply it to existing media, re-run the
+              reprocess-media CLI.
             </p>
           ) : null}
           <Field label="Timezone">

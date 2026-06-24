@@ -106,8 +106,52 @@ export type PlaybackEventType = (typeof PLAYBACK_EVENT_TYPES)[number];
 export const LOG_LEVELS = ['debug', 'info', 'warn', 'error'] as const;
 export type LogLevel = (typeof LOG_LEVELS)[number];
 
-export const MEDIA_VARIANT_KINDS = ['original', 'processed', 'fallback', 'thumbnail'] as const;
+export const MEDIA_VARIANT_KINDS = [
+  'original',
+  'processed',
+  'fallback',
+  'thumbnail',
+  'video_high',
+  'video_standard',
+  'video_light',
+] as const;
 export type MediaVariantKind = (typeof MEDIA_VARIANT_KINDS)[number];
+
+/**
+ * Per-device video quality tiers. Each video is encoded into one of these and a
+ * device is served the tier its hardware can decode smoothly:
+ *   - `high`     — beefy players (1080p60, H.264 high)
+ *   - `standard` — Raspberry Pi 4 (1080p30, H.264 high) — the safe default
+ *   - `light`    — ODROID C4 / weak ARM SBCs (720p30, H.264 main)
+ * The `standard` tier doubles as the processed file (MediaAsset.processedStorageKey)
+ * for back-compat; other tiers live in MediaVariant rows keyed `video_<tier>`.
+ */
+export const PLAYBACK_PROFILES = ['high', 'standard', 'light'] as const;
+export type PlaybackProfile = (typeof PLAYBACK_PROFILES)[number];
+
+/** Maps a playback profile to its MediaVariant kind. */
+export function videoVariantKindForProfile(profile: PlaybackProfile): MediaVariantKind {
+  return `video_${profile}` as MediaVariantKind;
+}
+
+export function isPlaybackProfile(value: unknown): value is PlaybackProfile {
+  return typeof value === 'string' && (PLAYBACK_PROFILES as readonly string[]).includes(value);
+}
+
+/**
+ * Suggests a tier from a device's reported hardware string (board model, or
+ * arch/OS as a fallback). A UI hint only — the per-device dropdown value wins.
+ */
+export function suggestPlaybackProfile(info: string | null | undefined): PlaybackProfile {
+  if (!info) return 'standard';
+  const s = info.toLowerCase();
+  // Weakest first: ODROID C4 / Amlogic boards need the light tier.
+  if (s.includes('odroid') || s.includes('c4') || s.includes('amlogic')) return 'light';
+  // Strong players: Raspberry Pi 5 and x86 desktops can take the high tier.
+  if (s.includes('raspberry pi 5') || s.includes('x86_64') || s.includes('x64')) return 'high';
+  if (s.includes('raspberry pi 4')) return 'standard';
+  return 'standard';
+}
 
 /** Does the configured content orientation present a portrait-shaped viewport? */
 export function isPortraitDeviceOrientation(o: DeviceOrientation): boolean {

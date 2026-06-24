@@ -7,7 +7,7 @@ import { BackendConnection } from './backend-ws';
 import { CommandExecutor } from './commands';
 import { loadConfig, type AgentConfig } from './config';
 import { AgentDb } from './db';
-import { collectMetrics, type PlaybackPosition } from './metrics';
+import { collectMetrics, readDeviceModel, type PlaybackPosition } from './metrics';
 import { PlayerServer } from './player-server';
 import { computePlayerState } from './state';
 import { SyncEngine } from './sync';
@@ -184,7 +184,7 @@ export async function startAgent(env: NodeJS.ProcessEnv = process.env): Promise<
       }
       try {
         const res = await api.pair(config.pairingCode, {
-          model: `${os.type()} ${os.arch()}`,
+          model: (await readDeviceModel()) ?? `${os.type()} ${os.arch()}`,
           os: `${os.type()} ${os.release()}`,
           arch: os.arch(),
           hostname: os.hostname(),
